@@ -31,7 +31,9 @@ uv sync
 uv run pytest tests/unit -q                  # offline, no robot (158 pass, 4 skipped on 2026-11-14)
 
 # The judged run. MOVES THE ARM: stand at the E-stop.
-uv run viamrobot-demo --max-parts 6          # writes a new runs/judge-<UTC time>.csv
+./scripts/run-demo.sh --max-parts 6          # dashboard + demo; writes a new runs/judge-<UTC time>.csv
+./scripts/run-demo.sh --tunnel --max-parts 6 # same, plus a public read-only dashboard link
+uv run viamrobot-demo --max-parts 6          # the demo alone
 ```
 
 A part vision-9 is unsure about is treated as anomalous: it goes to the reject bin and is logged `reject`. Every run

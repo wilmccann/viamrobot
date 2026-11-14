@@ -22,17 +22,19 @@ One 5-minute run with 6 judge items (good, defective, and at least one defect ty
 ## The run
 
 ```bash
-uv run viamrobot-demo --max-parts 6          # writes a new runs/judge-<UTC time>.csv
+./scripts/run-demo.sh --max-parts 6          # dashboard + demo; writes a new runs/judge-<UTC time>.csv
+./scripts/run-demo.sh --tunnel --max-parts 6 # also prints a public read-only link (cloudflared)
 ```
 
 - Parts vision-9 is unsure about are treated as anomalous: reject bin, logged `reject`.
 - Every run writes its own `runs/judge-<UTC time>.csv`; the path is printed when the run starts.
 - Ctrl-C stops the loop; recovery (stop, open gripper, lift, inspect pose) runs on any failure.
 
-Demo dashboard, on the laptop that runs the demo (companion repo):
-`VIAMROBOT_DIR=<this repo> uv run python tools/arm_console.py` → http://127.0.0.1:8900. It tracks the current run
-live from `runs/` (new-run banner, each logged part as it lands), renders these docs, runs the `ov-diag`
-benchmarks on demand, and keeps the STOP / Home / Inspect controls.
+Demo dashboard (`tools/demo_dashboard.py`, started by `scripts/run-demo.sh`): http://127.0.0.1:8900 on the laptop
+running the demo. Tabs: **Rubric** (one card per scoring criterion with its live evidence), **Run** (new-run banner,
+each logged part as it lands, filtered Viam machine logs, run history with CSV downloads), **Docs**, **Diagnostics**
+(measured table, live `ov-diag` benchmarks), **Controls** (STOP / Home / Inspect / sorter). Port 8901 is the
+read-only copy the `--tunnel` link shares: no controls, no camera, every robot call refused.
 
 ## The judge log
 
