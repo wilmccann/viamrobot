@@ -77,7 +77,7 @@ normal (0.06).
 
 **14. The robot side converges on `vision-9`.** This repo's demo loop (`8638c3b`, 14:20) takes every verdict from
 `vision-9`, logs before motion, picks with depth + the motion service, turns the jaws across long parts, and drops at
-good / bad / unsure poses. A laptop arm console (companion repo `tools/arm_console.py`) shows which bin each part is
+good / bad poses. A laptop arm console (companion repo `tools/arm_console.py`) shows which bin each part is
 heading to, with STOP and Home / Inspect buttons; `sorter-9` mirrors the teammates' sorter on `vision-9`.
 
 **15. Device placement measured** (`ov-diag benchmark`): YOLOs on the NPU at 2.4–2.6 ms, PatchCore on the GPU at f32

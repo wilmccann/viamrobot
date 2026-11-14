@@ -1,14 +1,14 @@
 # viamrobot — Track 3 "Spot it, sort it" on armfarm01
 
 A wrist camera looks at parts on the table. Each part gets a verdict, which is written to a judge log **before** the
-arm moves, and then the arm drops the part in the **good** bin, the **reject** bin or the **hold** area.
+arm moves, and then the arm drops the part in the **good** bin or the **reject** bin.
 
 ```
 cam ─▶ vision-9 (sortit:vision:parts9)
          ├─ vision-7  YOLOv8n "part" detector          NPU  ── is it a part?    (no → leave it)
          ├─ vision-8  YOLOv8n normal/anomaly/other     NPU  ── is it defective? ("other" → leave it)
          └─ mlmodel-9 crop-PatchCore                   GPU  ── loaded; decider switch for unseen defects
-      ─▶ viamrobot-demo: log line → pick with depth + motion service → good-pose / bad-pose / unsure-pose
+      ─▶ viamrobot-demo: log line → pick with depth + motion service → good-pose (normal) / bad-pose (anomalous)
 ```
 
 | Doc | What |
@@ -30,11 +30,11 @@ uv sync
 uv run pytest tests/unit -q                  # offline, no robot (158 pass, 4 skipped on 2026-11-14)
 
 # The judged run. MOVES THE ARM: stand at the E-stop.
-uv run viamrobot-demo --max-parts 6 --hold-pose unsure-pose --log runs/judge-$(date +%H%M%S).csv
+uv run viamrobot-demo --max-parts 6 --log runs/judge-$(date +%H%M%S).csv
 ```
 
-`--hold-pose unsure-pose` sends "hold" parts to the hold area. Without it they go to the reject bin and are logged as
-`reject`. A new `--log` file name per run keeps earlier runs out of the judged log, because the log is appended to.
+A part vision-9 is unsure about is treated as anomalous: it goes to the reject bin and is logged `reject`. A new
+`--log` file name per run keeps earlier runs out of the judged log, because the log is appended to.
 
 Connection settings come from `.env` (gitignored); see [docs/python project setup.md](docs/python%20project%20setup.md).
 
@@ -48,5 +48,5 @@ No header row; the columns are `item,decision,confidence,timestamp` (UTC). Illus
 2,box,0.949,2026-11-14T19:31:21.870113+00:00
 ```
 
-`decision` is `box` (good), `reject` (anomalous) or `hold`. Details and how to score it are in
+`decision` is `box` (good) or `reject` (anomalous or unsure). Details and how to score it are in
 [docs/JUDGING.md](docs/JUDGING.md#the-judge-log).

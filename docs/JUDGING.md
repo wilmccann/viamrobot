@@ -22,10 +22,10 @@ One 5-minute run with 6 judge items (good, defective, and at least one defect ty
 ## The run
 
 ```bash
-uv run viamrobot-demo --max-parts 6 --hold-pose unsure-pose --log runs/judge-$(date +%H%M%S).csv
+uv run viamrobot-demo --max-parts 6 --log runs/judge-$(date +%H%M%S).csv
 ```
 
-- `--hold-pose unsure-pose`: unsure parts go to the hold area and are logged `hold` (default sends them to reject).
+- Parts vision-9 is unsure about are treated as anomalous: reject bin, logged `reject`.
 - A fresh `--log` file per run: the log is opened in append mode.
 - Ctrl-C stops the loop; recovery (stop, open gripper, lift, inspect pose) runs on any failure.
 
@@ -40,7 +40,7 @@ Written by `Demo._write_log` (`src/viamrobot/demo.py`) **before the arm moves**,
 | Column | Meaning |
 |-|-|
 | `item` | 1, 2, 3 … in decision order |
-| `decision` | `box` (good), `reject` (anomalous) or `hold` |
+| `decision` | `box` (good) or `reject` (anomalous, or unsure) |
 | `confidence` | How far vision-9's score sits toward its decision (1.0 = certain) |
 | `timestamp` | UTC ISO-8601, taken just before the arm starts its response |
 
@@ -68,4 +68,4 @@ Hand in the run's file (`runs/judge-<time>.csv`). If the run restarts, start a n
 | `mlmodel-8` / `vision-8` | `/root/yolov8n-anomaly-v2/yolov8n-anomaly.onnx` (3 classes), NPU |
 | `mlmodel-9` | `/root/sortit-patchcore-crops-v2/model.xml`, GPU f32 |
 | `ov` / `vision-1` | `sortit-patchcore` v1 package, GPU f32 |
-| Poses | `inspect-pose`, `good-pose`, `bad-pose`, `unsure-pose`, `home-pose` (switch components) |
+| Poses | `inspect-pose`, `good-pose`, `bad-pose`, `home-pose` (switch components) |
