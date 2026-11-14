@@ -25,3 +25,6 @@ htmlcov/
 
 # Downloaded model packages (too large for git; see models/README.md)
 models/*/
+
+# Judge logs written by viamrobot-sim --log (simulated runs)
+judge*.csv
