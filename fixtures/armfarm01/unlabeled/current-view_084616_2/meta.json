@@ -1,0 +1,64 @@
+{
+  "label": "unlabeled",
+  "name": "current-view",
+  "captured_at": "2026-11-14T13:46:16.178214+00:00",
+  "camera_intrinsics": {
+    "intrinsic_parameters": {
+      "width_px": 640,
+      "height_px": 480,
+      "focal_x_px": 603.7205810546875,
+      "focal_y_px": 603.6961669921875,
+      "center_x_px": 320.1231384277344,
+      "center_y_px": 239.8363800048828
+    },
+    "distortion_parameters": {
+      "model": "inverse_brown_conrady",
+      "parameters": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "files": {
+    "cam_color.jpg": "image/jpeg",
+    "cam_depth.dep": "image/vnd.viam.dep",
+    "overview.jpg": "image/jpeg"
+  },
+  "timings_ms": {
+    "cam_get_images": 307.6,
+    "overview_get_images": 36.3,
+    "vision-1": 184.3,
+    "vision-2": 150.7,
+    "arm_pose": 111.1,
+    "arm_joints": 22.3
+  },
+  "vision-1": [
+    {
+      "class_name": "anomalous",
+      "confidence": 0.503948450088501
+    }
+  ],
+  "anomaly_score": 0.503948450088501,
+  "vision-2": [
+    {
+      "class_name": "normal",
+      "confidence": 0.92431640625
+    }
+  ],
+  "errors": {
+    "arm_joints": "GRPCError: (<Status.UNKNOWN: 2>, 'xArm: Emergency Stop Button Pushed In;', None)"
+  },
+  "arm_pose": {
+    "x": 324.5813682865586,
+    "y": 3.164963266059728,
+    "z": 348.8825470606672,
+    "o_x": 0.021056591252154814,
+    "o_y": 0.00359832148417739,
+    "o_z": -0.9997718099883273,
+    "theta": -170.47853545631955
+  },
+  "arm_joints_deg": null
+}

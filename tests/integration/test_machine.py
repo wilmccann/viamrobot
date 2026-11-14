@@ -52,3 +52,19 @@ async def test_anomaly_vision_classifies(robot):
     print(f"\n{ANOMALY_VISION}: " + ", ".join(f"{c.class_name}={c.confidence:.3f}" for c in results))
     assert results, "no classification returned"
     assert all(0.0 <= c.confidence <= 1.0 for c in results)
+
+
+async def test_anomaly_scorer_on_live_frame(robot):
+    """The pipeline's real scorer stage on one color frame from the wrist camera."""
+    from viamrobot.decision import decide
+    from viamrobot.pipeline import BoundingBox, Frame
+    from viamrobot.stages.machine import MachinePatchCoreScorer
+
+    images, _ = await Camera.from_robot(robot, CAMERA).get_images()
+    color = next((img for img in images if img.mime_type.startswith("image/") and "dep" not in img.mime_type), None)
+    assert color is not None, f"no color image in {[img.mime_type for img in images]}"
+
+    scorer = MachinePatchCoreScorer.from_robot(robot, ANOMALY_VISION)
+    score = await scorer.score(Frame(color=color), BoundingBox(0, 0, 1, 1, confidence=1.0))
+    print(f"\n{color.name} ({color.mime_type}): anomaly score {score:.3f} -> {decide(score).value}")
+    assert 0.0 <= score <= 1.0

@@ -22,3 +22,6 @@ viam-*.json
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Downloaded model packages (too large for git; see models/README.md)
+models/*/

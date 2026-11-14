@@ -129,6 +129,7 @@ class CsvDecisionLog:
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
+        self.runs = f"appends CSV lines to {self.path}"
 
     def write(self, record: ItemRecord) -> None:
         with self.path.open("a") as f:
@@ -151,6 +152,18 @@ class Pipeline:
     min_vlm_confidence: float = 0.5
     clock: Callable[[], float] = time.perf_counter
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+
+    def describe(self) -> list[tuple[str, str, str]]:
+        """(flowchart step, class used, what it actually runs) for each stage."""
+        stages = {
+            "item in view": self.camera,
+            "find the item": self.detector,
+            "anomaly score": self.scorer,
+            "VLM second look": self.vlm,
+            "log the decision": self.log,
+            "pick and place": self.mover,
+        }
+        return [(step, type(s).__name__, getattr(s, "runs", "")) for step, s in stages.items()]
 
     async def process(self, item_number: int) -> ItemRecord | None:
         """Run one item through the pipeline. Returns None when no item is in view."""
