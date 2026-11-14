@@ -16,6 +16,7 @@ cam ─▶ vision-9 (sortit:vision:parts9)
 | [docs/DESIGN.md](docs/DESIGN.md) | The five-minute design explanation: pipeline, models, device placement with measurements, trade-offs |
 | [docs/JUDGING.md](docs/JUDGING.md) | Judging-day runbook: pre-flight, diagnostics, the run, the judge log, rollback |
 | [docs/STORYLINE.md](docs/STORYLINE.md) | How we got here: every iteration, what failed, what each change fixed |
+| [docs/RETROSPECTIVE.md](docs/RETROSPECTIVE.md) | What worked in the full rehearsal, what didn't, design trade-offs, recommended next steps |
 | [armfarm01/NOTES.md](armfarm01/NOTES.md) | Hardware probe and the Track 3 rules as we read them |
 | [models/README.md](models/README.md) | Model packages pulled from the org, with checksums |
 
