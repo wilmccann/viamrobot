@@ -6,7 +6,15 @@ from datetime import datetime, timezone
 import pytest
 
 from viamrobot.decision import Destination
-from viamrobot.pipeline import BoundingBox, CsvDecisionLog, Frame, ItemRecord, Pipeline, VlmVerdict
+from viamrobot.pipeline import (
+    BoundingBox,
+    CsvDecisionLog,
+    Frame,
+    ItemRecord,
+    PickPlaceError,
+    Pipeline,
+    VlmVerdict,
+)
 
 FIXED_NOW = datetime(2026, 11, 14, 15, 30, tzinfo=timezone.utc)
 BOX = BoundingBox(10, 10, 100, 100, confidence=0.9)
@@ -196,8 +204,9 @@ async def test_every_item_logged_before_arm_moves(build, score, vlm):
 async def test_arm_failure_still_leaves_log_entry(build):
     pipeline, _, fakes = build(score=0.9, mover_fails=True)
 
-    with pytest.raises(RuntimeError, match="arm fault"):
+    with pytest.raises(PickPlaceError, match="arm fault") as exc_info:
         await pipeline.process(9)
+    assert exc_info.value.record.destination is Destination.REJECT
     assert [r.item_number for r in fakes["log"].records] == [9]
 
 
@@ -208,6 +217,57 @@ async def test_stage_timings_recorded(build):
 
     assert record.timings_ms.keys() == {"capture", "detect", "anomaly", "vlm"}
     assert all(ms == pytest.approx(1.0) for ms in record.timings_ms.values())
+
+
+# --- the run loop: back to "item in view" -----------------------------------------
+
+
+class ScriptedDetector:
+    """Returns each entry of `boxes` in turn (None = nothing in view), then None forever."""
+
+    def __init__(self, events, boxes):
+        self.events, self.boxes = events, list(boxes)
+
+    async def find_item(self, frame):
+        self.events.append("detect")
+        return self.boxes.pop(0) if self.boxes else None
+
+
+async def test_run_skips_empty_frames_without_using_item_numbers(build):
+    pipeline, events, fakes = build(score=0.1)
+    pipeline.detector = ScriptedDetector(events, [None, BOX, None, None, BOX, BOX])
+    seen = []
+
+    summary = await pipeline.run(max_items=3, idle_poll_s=0, on_record=seen.append)
+
+    assert summary.stopped_because == "max_items"
+    assert [r.item_number for r in summary.records] == [1, 2, 3]
+    assert seen == summary.records == fakes["log"].records
+    assert events.count("detect") == 6
+    assert fakes["mover"].moves == [Destination.BOX] * 3
+
+
+async def test_run_stops_at_deadline_when_nothing_arrives(build):
+    ticks = iter(range(1000))
+    pipeline, _, fakes = build(box=None, clock=lambda: next(ticks))
+
+    summary = await pipeline.run(max_items=6, deadline_s=10, idle_poll_s=0)
+
+    assert summary.stopped_because == "deadline"
+    assert summary.records == []
+    assert summary.elapsed_s >= 10
+    assert fakes["mover"].moves == []
+
+
+async def test_run_stops_on_arm_fault_with_item_logged(build):
+    pipeline, _, fakes = build(score=0.9, mover_fails=True)
+
+    summary = await pipeline.run(max_items=6, idle_poll_s=0)
+
+    assert summary.stopped_because == "arm_fault"
+    assert "arm fault" in summary.fault
+    assert [r.item_number for r in summary.records] == [1]
+    assert fakes["log"].records == summary.records
 
 
 # --- the judge log file ---------------------------------------------------------

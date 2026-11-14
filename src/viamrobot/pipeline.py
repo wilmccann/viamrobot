@@ -24,6 +24,7 @@ from typing import Callable, Literal, Protocol
 from viamrobot.decision import Destination, Thresholds, decide, log_line
 
 DecidedBy = Literal["anomaly", "vlm", "fallback"]
+StopReason = Literal["max_items", "deadline", "arm_fault"]
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,22 @@ class ItemRecord:
         return log_line(self.item_number, self.destination, self.confidence, self.decided_at)
 
 
+class PickPlaceError(RuntimeError):
+    """The decision was logged, but the arm failed to put the item where it was sent."""
+
+    def __init__(self, record: ItemRecord, cause: BaseException):
+        super().__init__(f"item {record.item_number} -> {record.destination.value}: pick and place failed: {cause}")
+        self.record = record
+
+
+@dataclass(frozen=True)
+class RunSummary:
+    records: list[ItemRecord]
+    stopped_because: StopReason
+    elapsed_s: float
+    fault: str = ""
+
+
 class CsvDecisionLog:
     """Appends one judge-log line per item and flushes, so a crash mid-run keeps prior lines."""
 
@@ -180,8 +197,48 @@ class Pipeline:
             vlm_reason=vlm_reason,
         )
         self.log.write(record)  # logged before the arm moves
-        await self.mover.pick_and_place(frame, box, destination)
+        try:
+            await self.mover.pick_and_place(frame, box, destination)
+        except Exception as exc:
+            raise PickPlaceError(record, exc) from exc
         return record
+
+    async def run(
+        self,
+        max_items: int = 6,
+        deadline_s: float = 300.0,
+        idle_poll_s: float = 0.2,
+        on_record: Callable[[ItemRecord], None] | None = None,
+    ) -> RunSummary:
+        """Loop back to "item in view" until max_items are decided or the deadline passes.
+
+        Empty frames don't use up an item number. The deadline is checked before each
+        attempt, so an item already in progress is allowed to finish. An arm fault stops
+        the run: the item is already logged, and a faulted arm needs a person anyway.
+        """
+        start = self.clock()
+        records: list[ItemRecord] = []
+
+        def summary(reason: StopReason, fault: str = "") -> RunSummary:
+            return RunSummary(records, reason, self.clock() - start, fault)
+
+        while len(records) < max_items:
+            if self.clock() - start >= deadline_s:
+                return summary("deadline")
+            try:
+                record = await self.process(len(records) + 1)
+            except PickPlaceError as exc:
+                records.append(exc.record)
+                if on_record:
+                    on_record(exc.record)
+                return summary("arm_fault", str(exc))
+            if record is None:
+                await asyncio.sleep(idle_poll_s)
+                continue
+            records.append(record)
+            if on_record:
+                on_record(record)
+        return summary("max_items")
 
     async def _timed(self, stage: str, timings: dict[str, float], awaitable):
         start = self.clock()
