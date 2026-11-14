@@ -98,6 +98,7 @@ class DemoStopped(RuntimeError):
 class Failure:
     box: BoundingBox  # where the part was, in the inspect-pose image
     count: int = 1
+    item: int | None = None  # its judge-log number, if its decision was already logged
 
 
 @dataclass
@@ -200,6 +201,8 @@ class Demo:
     robot: RobotClient | None = None
     cell: CellLike | None = None
     _current: BoundingBox | None = None
+    _current_item: int | None = None
+    items_logged: int = 0  # judge-log numbers handed out so far
 
     # --- one part ----------------------------------------------------------------
 
@@ -216,11 +219,19 @@ class Demo:
         if seen is None:
             return None
         box = self._current = seen.box
-        item = len(self.results) + 1
         destination, pose, confidence = route(seen, self.hold_pose)
-        self._write_log(log_line(item, destination, confidence, datetime.now(timezone.utc)))
-        self.log(f"part {item}: {len(snap.parts)} in view; taking ({box.x_min:.0f},{box.y_min:.0f})-"
-                 f"({box.x_max:.0f},{box.y_max:.0f}) px: {seen.verdict} (score {seen.score:.3f}) -> {pose}")
+        # One judge-log line per physical part: a part being retried after a failure keeps
+        # the number (and line) it was given the first time.
+        item = next((f.item for f in self.failures if f.item is not None and iou(f.box, box) > SAME_PART_IOU), None)
+        retry = item is not None
+        if not retry:
+            self.items_logged += 1
+            item = self.items_logged
+            self._write_log(log_line(item, destination, confidence, datetime.now(timezone.utc)))
+        self._current_item = item
+        self.log(f"part {item}{' (retry)' if retry else ''}: {len(snap.parts)} in view; taking "
+                 f"({box.x_min:.0f},{box.y_min:.0f})-({box.x_max:.0f},{box.y_max:.0f}) px: "
+                 f"{seen.verdict} (score {seen.score:.3f}) -> {pose}")
 
         part = await cell.locate(snap, box)
         await cell.pick(part)
@@ -228,21 +239,23 @@ class Demo:
         await cell.go_to(INSPECT_POSE)
 
         self.failures = [f for f in self.failures if iou(f.box, box) <= SAME_PART_IOU]
-        self._current = None
+        self._current, self._current_item = None, None
         return Result(item, destination, seen.score, time.perf_counter() - start)
 
     # --- failures ----------------------------------------------------------------
 
     def _note_failure(self) -> None:
         box, self._current = self._current, None
+        item, self._current_item = self._current_item, None
         if box is None:
             return
         for f in self.failures:
             if iou(f.box, box) > SAME_PART_IOU:
                 f.count += 1
                 f.box = box
+                f.item = f.item if f.item is not None else item
                 return
-        self.failures.append(Failure(box))
+        self.failures.append(Failure(box, item=item))
 
     async def _connected(self) -> bool:
         try:

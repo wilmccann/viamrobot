@@ -57,7 +57,15 @@ GO_TO = 2
 
 GRIP_DEPTH_MM = 15.0  # fingertips this far below the part's top surface when closing
 APPROACH_MM = 100.0  # come down on the part from this far above the grasp
-TABLE_CLEARANCE_MM = 2.0  # fingertips never closer than this to the depth-measured table
+# Fingertips never closer than this to the depth-measured table. The depth camera reads
+# the table 1-2 mm low (touch probe, 2026-11-14), and at 2 mm every pick in a demo run
+# dragged the fingertips on the table: they stalled 43-55 mm apart after 4-10 s and
+# shoved the part instead of lifting it. 5 mm leaves ~3 mm above the real table.
+TABLE_CLEARANCE_MM = 5.0
+# A grip counts only if the fingers stop within this of the part's measured width (its
+# short side, from the outline). Fingers stalled on the table stop far wider than that.
+GRIP_SLACK_MM = 12.0
+GRIPPER_UNITS_PER_MM = 10.0  # UFactory gripper position: ~0.1 mm per unit (840 = ~84 mm open)
 # Fingertips hang this far below the `gripper` frame origin (which motion positions),
 # measured on armfarm01. The "claws" collision box ends at 50 mm, which put the
 # fingertips ~10 mm low: into the cardboard, where they couldn't close.
@@ -75,6 +83,8 @@ FINGERS_OPEN_AT_LEAST = 700.0
 EMPTY_CLOSE_MAX = 30.0  # an empty close stops at -3..2; at or above this, something is between the fingers
 FINGERS_STILL = 3.0  # two reads 0.25 s apart within this = stopped
 FINGERS_TIMEOUT_S = 10.0
+FINGERS_MIN_TRAVEL = 20.0  # a close has started once the fingers have moved this far in
+CLOSE_START_TIMEOUT_S = 2.0  # grab() normally gets the fingers moving well within this
 
 SAFE_Z = 150.0  # gripper origin below this = down near the table; lift straight up before a joint move
 STRAIGHT_LINE = Constraints(linear_constraint=[LinearConstraint(line_tolerance_mm=5)])
@@ -95,6 +105,13 @@ JAW_TOLERANCE_DEG = 10.0
 # about o, which points down, so +theta should turn the jaws clockwise: -1. pick()
 # measures the result and flips this if it's wrong.
 THETA_TO_YAW = -1.0
+
+# Second look (see Cell.second_look): match the part within this of where the first look
+# says it is; trust the refined position only if it moved less than SECOND_LOOK_MAX_MM;
+# turn the jaws again only if the part's direction changed by more than RETURN_DEG.
+SECOND_LOOK_MAX_PX = 120.0
+SECOND_LOOK_MAX_MM = 40.0
+RETURN_DEG = 10.0
 
 
 class PickMissed(RuntimeError):
@@ -129,6 +146,15 @@ class PartLocation:
     table_z: float
     yaw_deg: float | None = None  # long axis in the world (CCW from +x, seen from above); None = not long
     elongation: float = 1.0
+    width_mm: float | None = None  # what the jaws should close to; None = unknown
+
+
+def match_part(parts: list[SeenPart], expected_uv: tuple[float, float], max_px: float) -> SeenPart | None:
+    """The part whose box centre is nearest `expected_uv`, if within `max_px`."""
+    if not parts:
+        return None
+    best = min(parts, key=lambda p: math.dist(box_center(p.box), expected_uv))
+    return best if math.dist(box_center(best.box), expected_uv) <= max_px else None
 
 
 def yaw_between(a: Pose, b: Pose) -> float:
@@ -148,6 +174,7 @@ class Cell:
         self.motion = MotionClient.from_robot(robot, MOTION)
         self.parts = VisionClient.from_robot(robot, PARTS)
         self.theta_to_yaw = THETA_TO_YAW  # learned per connection if the first turn comes out backwards
+        self.theta_bias = 0.0  # learned: theta the first turn of each pick is short by
 
     # --- arm -----------------------------------------------------------------
 
@@ -232,13 +259,61 @@ class Cell:
             raise RuntimeError(f"gripper didn't open: fingers stopped at {opened:.0f}")
 
     async def close_fingers(self) -> float:
-        """Close the fingers and return where they stopped (on the part, or ~0 on nothing)."""
-        return await self.set_fingers(GRIPPER_CLOSED, "close")
+        """Close the fingers and return where they stopped (on the part, or ~0 on nothing).
+
+        Uses grab(), which returns at once, and watches the fingers: started moving, then
+        still. DoCommand "set" can't be used for this: when the fingers stop on a part they
+        never reach "closed", and the driver polls for up to 10 s (it took 8-10.5 s on
+        some picks, and one went over the 20 s part timeout). Falls back to "set" if
+        grab() doesn't get the fingers moving.
+        """
+        start = time.perf_counter()
+        before = await self.finger_pos()
+        await self.gripper.grab(timeout=SET_TIMEOUT_S)
+        try:
+            async with asyncio.timeout(CLOSE_START_TIMEOUT_S):
+                while (now := await self.finger_pos()) > before - FINGERS_MIN_TRAVEL:
+                    await asyncio.sleep(0.05)
+        except TimeoutError:
+            self.log(f"   close: grab() didn't move the fingers in {CLOSE_START_TIMEOUT_S:.0f} s; using set")
+            return await self.set_fingers(GRIPPER_CLOSED, "close")
+        async with asyncio.timeout(FINGERS_TIMEOUT_S):
+            last = now
+            while True:
+                await asyncio.sleep(0.2)
+                now = await self.finger_pos()
+                if abs(now - last) <= FINGERS_STILL:
+                    break
+                last = now
+        self.log(f"   close: fingers still at {now:.0f} after {time.perf_counter() - start:.1f} s")
+        return now
 
     @staticmethod
-    def holding_part(position: float) -> bool:
-        """Fingers stopped on something: clear of an empty close and well short of open."""
-        return EMPTY_CLOSE_MAX <= position <= FINGERS_OPEN_AT_LEAST
+    def holding_part(position: float, width_mm: float | None = None) -> bool:
+        """Fingers stopped on something: clear of an empty close and well short of open,
+        and, when the part's width is known, no wider than it plus GRIP_SLACK_MM.
+
+        The width bound is what tells a grip from fingers stalled on the table: those
+        stop half-closed (~45 mm apart) whatever the part is.
+        """
+        widest = FINGERS_OPEN_AT_LEAST
+        if width_mm is not None:
+            widest = min(widest, (width_mm + GRIP_SLACK_MM) * GRIPPER_UNITS_PER_MM)
+        return EMPTY_CLOSE_MAX <= position <= widest
+
+    async def fingers_settled(self, timeout_s: float = 2.0) -> float:
+        """Finger position once two reads 0.3 s apart agree (or after `timeout_s`).
+
+        After a lift, fingers that were stalled on the table can carry on closing."""
+        last = await self.finger_pos()
+        deadline = time.perf_counter() + timeout_s
+        while time.perf_counter() < deadline:
+            await asyncio.sleep(0.3)
+            now = await self.finger_pos()
+            if abs(now - last) <= FINGERS_STILL:
+                return now
+            last = now
+        return last
 
     # --- seeing ----------------------------------------------------------------
 
@@ -284,15 +359,21 @@ class Cell:
             self.log(f"   part is only {part.z - table.z:.0f} mm above the table by depth; gripping just above the table")
 
         yaw, elongation = None, 1.0
+        mm_per_px = depth_mm / k.fx
         if axis is None:
+            width_mm = min(box.x_max - box.x_min, box.y_max - box.y_min) * mm_per_px
             self.log("   no outline found in the box; keeping the gripper's twist")
         else:
             elongation = axis.elongation
+            # The jaws close across the short side for a long part; for a round one, the
+            # long side is the widest it could be.
+            width_mm = (axis.width_px if elongation >= ELONGATED else axis.length_px) * mm_per_px
             if elongation >= ELONGATED:
                 yaw = await self._world_yaw(axis, depth_mm, k)
             self.log(f"   outline {axis.length_px:.0f}x{axis.width_px:.0f} px at {axis.angle_deg:.0f} deg in the image"
-                     + (f" -> long part, world yaw {yaw:.0f} deg" if yaw is not None else " -> not long; keeping the twist"))
-        return PartLocation(part.x, part.y, part.z, table.z, yaw, elongation)
+                     + (f" -> long part, world yaw {yaw:.0f} deg" if yaw is not None else " -> not long; keeping the twist")
+                     + f"; grip width ~{width_mm:.0f} mm")
+        return PartLocation(part.x, part.y, part.z, table.z, yaw, elongation, width_mm)
 
     async def _world_yaw(self, axis: PartAxis, depth_mm: float, k: Intrinsics) -> float:
         """The part's long axis in the world: both ends of it in the image, into the world."""
@@ -308,7 +389,7 @@ class Cell:
     # --- doing -----------------------------------------------------------------
 
     async def _turn_across(self, part: PartLocation, over_part: Callable[[float, float], Pose], z: float,
-                           theta0: float) -> float:
+                           theta0: float, from_inspect: bool = True) -> float:
         """Move above the part with the jaws turned across its long axis; return the theta used.
 
         The turn is computed from the jaws' current direction and applied as a change of
@@ -320,13 +401,20 @@ class Cell:
         turn = jaw_turn_deg(part.yaw_deg, await self.jaw_yaw())
         self.log(f"   jaws to {wrap_half_turn(want):.0f} deg: turn {turn:+.0f} deg")
         tried: list[tuple[float, float]] = []  # (theta, measured jaw yaw)
-        theta = theta0 + self.theta_to_yaw * turn
+        planned = theta0 + self.theta_to_yaw * turn
+        # The learned bias corrects for starting at the inspect pose (not quite straight
+        # down); a turn that starts straight down (after the second look) doesn't need it.
+        theta = planned + (self.theta_bias if from_inspect else 0.0)
         for attempt in (1, 2, 3):
             await self.move_gripper(over_part(z, theta))
             yaw = await self.jaw_yaw()
             err = wrap_half_turn(want - yaw)
             self.log(f"   turn {attempt}: theta {theta:.1f} -> jaws {err:+.1f} deg off")
             if abs(err) <= JAW_TOLERANCE_DEG:
+                # Remember the constant part of the error (the inspect pose isn't quite
+                # straight down, ~10 deg on armfarm01) so the next part's first turn lands.
+                if from_inspect:
+                    self.theta_bias = theta + self.theta_to_yaw * err - planned
                 return theta
             tried.append((theta, yaw))
             if len(tried) == 1:
@@ -342,6 +430,45 @@ class Cell:
                 self.log(f"   measured {gain:+.2f} deg of jaw yaw per deg of theta")
                 theta = theta + err / gain
         raise RuntimeError(f"couldn't turn the jaws across the part ({err:+.0f} deg off)")
+
+    async def second_look(self, part: PartLocation, theta: float, z: float) -> PartLocation:
+        """Look at the part again from above it, and return a refined location (or `part`
+        unchanged if the second look doesn't find it or disagrees too much).
+
+        Seen from the inspect pose, a part near the edge of the image is located a few mm
+        off (the camera's mounting in the config looks ~2 deg off: the flat table reads
+        ~9 mm higher at one corner), enough to miss a small part. So: shift sideways by
+        the camera's offset from the gripper (~83 mm) so the camera is straight above the
+        part, at the same height, take a new frame, and locate the part from that. It's
+        then near the image centre and closer, where those errors are small. (Straight
+        above the gripper instead, the part would sit in the bottom band of the image,
+        which vision-9 drops because the fingers show there.)
+
+        Heights are kept from the first look: the clearance was tuned for that distance.
+        """
+        gripper = await self.in_world(GRIPPER)
+        cam = await self.in_world(CAMERA)
+        dx, dy = cam.x - gripper.x, cam.y - gripper.y
+        self.log("-> second look")
+        await self.move_gripper(Pose(x=part.x - dx, y=part.y - dy, z=z, o_x=0, o_y=0, o_z=-1, theta=theta))
+        snap = await self.look()
+        k = snap.intrinsics
+        q = PoseInFrame(reference_frame="world", pose=Pose(x=part.x, y=part.y, z=part.top_z, o_z=1))
+        p = (await self.robot.transform_pose(q, CAMERA)).pose
+        expected = (k.fx * p.x / p.z + k.cx, k.fy * p.y / p.z + k.cy)
+        seen = match_part(snap.parts, expected, SECOND_LOOK_MAX_PX)
+        if seen is None:
+            self.log(f"   second look: no part near ({expected[0]:.0f},{expected[1]:.0f}) px; keeping the first look")
+            return part
+        again = await self.locate(snap, seen.box)
+        moved = math.hypot(again.x - part.x, again.y - part.y)
+        if moved > SECOND_LOOK_MAX_MM:
+            self.log(f"   second look puts it {moved:.0f} mm away; not trusting that, keeping the first look")
+            return part
+        self.log(f"   second look: part is {again.x - part.x:+.1f}, {again.y - part.y:+.1f} mm from the first look")
+        return PartLocation(again.x, again.y, part.top_z, part.table_z,
+                            again.yaw_deg if again.yaw_deg is not None else part.yaw_deg,
+                            again.elongation, again.width_mm if again.width_mm is not None else part.width_mm)
 
     async def pick(self, part: PartLocation) -> float:
         """Open, come straight down on the part, close, confirm the grip, lift, confirm again.
@@ -367,21 +494,35 @@ class Cell:
         else:
             theta = await self._turn_across(part, at, above_z, theta0)
 
+        # Second look, from closer and with the part near the middle of the image.
+        first = part
+        part = await self.second_look(part, theta, above_z)
+        if part is not first:
+            turned = first.yaw_deg is not None
+            if part.yaw_deg is not None and (
+                not turned or abs(wrap_half_turn(part.yaw_deg - first.yaw_deg)) > RETURN_DEG
+            ):
+                theta = await self._turn_across(part, at, above_z, theta, from_inspect=False)
+            else:
+                await self.move_gripper(at(above_z, theta))
+
         def over_part(z: float) -> Pose:
             return at(z, theta)
 
         await self.move_gripper(over_part(grasp_z), straight=True)
 
         closed = await self.close_fingers()
-        if not self.holding_part(closed):
+        if not self.holding_part(closed, part.width_mm):
             await self.move_gripper(over_part(above_z), straight=True)
             await self.open_fingers()
-            raise PickMissed(f"fingers stopped at {closed:.0f} (empty close < {EMPTY_CLOSE_MAX:.0f})")
-        self.log(f"holding: fingers stopped at {closed:.0f}")
+            expected = f", part ~{part.width_mm:.0f} mm wide" if part.width_mm is not None else ""
+            raise PickMissed(f"fingers stopped at {closed:.0f} (~{closed / GRIPPER_UNITS_PER_MM:.0f} mm apart{expected})")
+        self.log(f"holding: fingers stopped at {closed:.0f} (~{closed / GRIPPER_UNITS_PER_MM:.0f} mm apart)")
 
         await self.move_gripper(over_part(above_z), straight=True)
-        lifted = await self.finger_pos()
-        if not self.holding_part(lifted):
+        lifted = await self.fingers_settled()
+        self.log(f"after lift: fingers at {lifted:.0f}")
+        if not self.holding_part(lifted, part.width_mm):
             await self.open_fingers()
             raise PickMissed(f"part slipped while lifting: fingers at {lifted:.0f}")
         return lifted

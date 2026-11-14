@@ -175,6 +175,24 @@ async def test_any_other_failure_recovers_and_moves_on(tmp_path):
     assert remaining(world) == [A] and len(results) == 1
 
 
+async def test_a_retried_part_keeps_its_number_and_is_logged_once(tmp_path):
+    # A misses, B is done, then A is retried and done: lines 1 (A) and 2 (B), nothing else.
+    world = World([seen(A, "normal", 0.1), seen(B, "anomalous", 0.9)], picks=["miss", "ok", "ok"])
+    results = await make_demo(world, tmp_path, max_parts=2).run()
+
+    lines = (tmp_path / "judge.csv").read_text().splitlines()
+    assert [l.split(",")[:2] for l in lines] == [["1", "box"], ["2", "reject"]]
+    assert sorted(r.item for r in results) == [1, 2]
+    assert {r.item: r.destination for r in results} == {1: Destination.BOX, 2: Destination.REJECT}
+
+
+async def test_numbers_never_repeat_after_a_timeout(tmp_path):
+    world = World([seen(A), seen(B)], picks=["hang", "ok"])
+    await make_demo(world, tmp_path, max_parts=1, part_timeout_s=0.2).run()
+    numbers = [l.split(",")[0] for l in (tmp_path / "judge.csv").read_text().splitlines()]
+    assert numbers == ["1", "2"]
+
+
 async def test_a_part_that_keeps_failing_is_dropped_after_max_attempts(tmp_path):
     world = World([seen(A)], picks=["miss", "miss", "miss"])
     demo = make_demo(world, tmp_path, max_parts=1, max_attempts=3)
