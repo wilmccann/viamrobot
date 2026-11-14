@@ -5,6 +5,8 @@ the right place (30%), latency from an item entering view to the arm starting it
 with a measured reason shown through diagnostics (10%), this explanation (20%). The judges include a defect type we
 have not seen.
 
+Visual walkthrough to present alongside this doc: [design explainer](https://claude.ai/artifact/A2VmX8REEjd1baSrMwH3R3#bc50ee5a-07ae.m42mf6dkzaw.48).
+
 ## What happens to one part
 
 ```
