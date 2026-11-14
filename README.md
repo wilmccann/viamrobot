@@ -16,6 +16,7 @@ cam ─▶ vision-9 (sortit:vision:parts9)
 | [docs/DESIGN.md](docs/DESIGN.md) | The five-minute design explanation: pipeline, models, device placement with measurements, trade-offs |
 | [docs/JUDGING.md](docs/JUDGING.md) | Judging-day runbook: pre-flight, diagnostics, the run, the judge log, rollback |
 | [docs/STORYLINE.md](docs/STORYLINE.md) | How we got here: every iteration, what failed, what each change fixed |
+| [docs/VLA-EXPERIMENTS.md](docs/VLA-EXPERIMENTS.md) | The virtual-leader SmolVLA track: datasets, models, robot trials, findings |
 | [armfarm01/NOTES.md](armfarm01/NOTES.md) | Hardware probe and the Track 3 rules as we read them |
 | [models/README.md](models/README.md) | Model packages pulled from the org, with checksums |
 
@@ -30,11 +31,13 @@ uv sync
 uv run pytest tests/unit -q                  # offline, no robot (158 pass, 4 skipped on 2026-11-14)
 
 # The judged run. MOVES THE ARM: stand at the E-stop.
-uv run viamrobot-demo --max-parts 6 --log runs/judge-$(date +%H%M%S).csv
+./scripts/run-demo.sh --max-parts 6          # dashboard + demo; writes a new runs/judge-<UTC time>.csv
+./scripts/run-demo.sh --tunnel --max-parts 6 # same, plus a public read-only dashboard link
+uv run viamrobot-demo --max-parts 6          # the demo alone
 ```
 
-A part vision-9 is unsure about is treated as anomalous: it goes to the reject bin and is logged `reject`. A new
-`--log` file name per run keeps earlier runs out of the judged log, because the log is appended to.
+A part vision-9 is unsure about is treated as anomalous: it goes to the reject bin and is logged `reject`. Every run
+writes its own log file under `runs/` (pass `--log <file>` to choose one).
 
 Connection settings come from `.env` (gitignored); see [docs/python project setup.md](docs/python%20project%20setup.md).
 

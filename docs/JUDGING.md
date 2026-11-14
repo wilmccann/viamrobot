@@ -22,16 +22,19 @@ One 5-minute run with 6 judge items (good, defective, and at least one defect ty
 ## The run
 
 ```bash
-uv run viamrobot-demo --max-parts 6 --log runs/judge-$(date +%H%M%S).csv
+./scripts/run-demo.sh --max-parts 6          # dashboard + demo; writes a new runs/judge-<UTC time>.csv
+./scripts/run-demo.sh --tunnel --max-parts 6 # also prints a public read-only link (cloudflared)
 ```
 
 - Parts vision-9 is unsure about are treated as anomalous: reject bin, logged `reject`.
-- A fresh `--log` file per run: the log is opened in append mode.
+- Every run writes its own `runs/judge-<UTC time>.csv`; the path is printed when the run starts.
 - Ctrl-C stops the loop; recovery (stop, open gripper, lift, inspect pose) runs on any failure.
 
-Optional monitor from a laptop, in the companion repo: `uv run python tools/arm_console.py` →
-http://127.0.0.1:8900. It shows what `vision-9` sees and which bin each part is heading to, plus a STOP button and
-Home / Inspect poses.
+Demo dashboard (`tools/demo_dashboard.py`, started by `scripts/run-demo.sh`): http://127.0.0.1:8900 on the laptop
+running the demo. Tabs: **Rubric** (one card per scoring criterion with its live evidence), **Run** (new-run banner,
+each logged part as it lands, filtered Viam machine logs, run history with CSV downloads), **Docs**, **Diagnostics**
+(measured table, live `ov-diag` benchmarks), **Controls** (STOP / Home / Inspect / sorter). Port 8901 is the
+read-only copy the `--tunnel` link shares: no controls, no camera, every robot call refused.
 
 ## The judge log
 
@@ -48,7 +51,7 @@ Scoring from the log: match each line to the judge's truth for that item, then
 precision = correct `reject` / all `reject`, recall = correct `reject` / all truly defective items.
 Latency = log `timestamp` minus the moment the item entered view (the judge's clock).
 
-Hand in the run's file (`runs/judge-<time>.csv`). If the run restarts, start a new file and say which one counts.
+Hand in the run's file (`runs/judge-<UTC time>.csv`). A restarted run gets its own file; say which one counts.
 
 ## If something goes wrong
 

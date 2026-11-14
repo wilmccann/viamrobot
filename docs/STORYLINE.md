@@ -80,7 +80,12 @@ normal (0.06).
 good / bad poses. A laptop arm console (companion repo `tools/arm_console.py`) shows which bin each part is
 heading to, with STOP and Home / Inspect buttons; `sorter-9` mirrors the teammates' sorter on `vision-9`.
 
-**15. Device placement measured** (`ov-diag benchmark`): YOLOs on the NPU at 2.4–2.6 ms, PatchCore on the GPU at f32
+**15. The VLA grasp track** (teammate, ~13:00–14:05). SO-101 leader motion was recovered from every xArm
+recording by inverting the teleop mapping, SmolVLA was fine-tuned on it (3 models), and the VLA ran as a virtual
+leader: vision and the planner aim, the VLA grasps. It reached a grasp in 2 of 4 vision-guided runs; the policy learned
+the average pick, not the part's position. See [VLA-EXPERIMENTS.md](VLA-EXPERIMENTS.md).
+
+**16. Device placement measured** (`ov-diag benchmark`): YOLOs on the NPU at 2.4–2.6 ms, PatchCore on the GPU at f32
 18–21 ms. PatchCore can't compile on the NPU, and f16 blanks its heatmap.
 
 ## Where that leaves us
