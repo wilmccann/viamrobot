@@ -1,0 +1,514 @@
+{
+  "components": [
+    {
+      "api": "rdk:component:camera",
+      "attributes": {
+        "format": "MJPEG",
+        "height_px": 480,
+        "video_path": "/dev/v4l/by-id/usb-USB_Camera_USB_Camera_20250807114148-video-index0",
+        "width_px": 640
+      },
+      "frame": {
+        "orientation": {
+          "type": "ov_degrees",
+          "value": {
+            "th": 0,
+            "x": 0,
+            "y": 0,
+            "z": 1
+          }
+        },
+        "parent": "world",
+        "translation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "model": "rdk:builtin:webcam",
+      "name": "overview-cam",
+      "service_configs": [
+        {
+          "attributes": {
+            "capture_methods": [
+              {
+                "additional_params": {},
+                "capture_frequency_hz": 10,
+                "disabled": false,
+                "method": "GetImages"
+              }
+            ]
+          },
+          "type": "data_manager"
+        }
+      ]
+    },
+    {
+      "api": "rdk:component:arm",
+      "attributes": {
+        "manual_mode": {
+          "release_torque": true
+        },
+        "port": "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C127170-if00"
+      },
+      "model": "devrel:so101:arm",
+      "name": "leader-arm"
+    },
+    {
+      "api": "rdk:component:gripper",
+      "attributes": {
+        "arm": "leader-arm",
+        "gripper_type": "leader"
+      },
+      "model": "devrel:so101:gripper",
+      "name": "leader-gripper"
+    },
+    {
+      "api": "rdk:component:sensor",
+      "attributes": {
+        "port": "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C127170-if00"
+      },
+      "disabled": true,
+      "model": "devrel:so101:calibration",
+      "name": "leader-calibration"
+    },
+    {
+      "api": "rdk:component:switch",
+      "attributes": {
+        "arm": "arm",
+        "constraints": {
+          "collision_specifications": [],
+          "linear_constraints": [],
+          "orientation_constraints": [],
+          "pseudolinear_constraints": []
+        },
+        "extra": {},
+        "joints": [
+          0,
+          0.393937,
+          -0.884603,
+          0,
+          -1.29246,
+          0
+        ],
+        "motion": "",
+        "vision_services": []
+      },
+      "model": "erh:vmodutils:arm-position-saver",
+      "name": "home-pose"
+    },
+    {
+      "api": "rdk:component:sensor",
+      "attributes": {
+        "default_capture_frequency_hz": 0,
+        "resources": [
+          {
+            "method": "JointPositions",
+            "resource_name": "arm"
+          },
+          {
+            "method": "DoCommand",
+            "resource_name": "gripper"
+          },
+          {
+            "method": "GetImages",
+            "resource_name": "cam"
+          },
+          {
+            "method": "GetImages",
+            "resource_name": "overview-cam"
+          }
+        ]
+      },
+      "model": "viam:capture-control:capture-control-sensor",
+      "name": "capture-control"
+    },
+    {
+      "api": "rdk:component:switch",
+      "attributes": {
+        "arm": "leader-arm",
+        "constraints": {
+          "collision_specifications": [],
+          "linear_constraints": [],
+          "orientation_constraints": [],
+          "pseudolinear_constraints": []
+        },
+        "extra": {},
+        "joints": [
+          -0.0015343553863686413,
+          -0.7073378331159438,
+          -0.2178784648643471,
+          1.5533430342749532,
+          1.624882354164391
+        ],
+        "motion": "",
+        "vision_services": []
+      },
+      "model": "erh:vmodutils:arm-position-saver",
+      "name": "leader-home"
+    }
+  ],
+  "fragment_mods": [
+    {
+      "fragment_id": "fd2be28c-71e5-4b8a-90a8-a514dbe75ca7",
+      "mods": [
+        {
+          "$set": {
+            "components.arm.service_configs": [
+              {
+                "attributes": {
+                  "capture_methods": [
+                    {
+                      "additional_params": {},
+                      "capture_frequency_hz": 10,
+                      "disabled": true,
+                      "method": "JointPositions"
+                    }
+                  ]
+                },
+                "type": "data_manager"
+              }
+            ]
+          }
+        },
+        {
+          "$set": {
+            "components.cam.attributes.height_px": 480,
+            "components.cam.attributes.width_px": 640,
+            "components.cam.service_configs": [
+              {
+                "attributes": {
+                  "capture_methods": [
+                    {
+                      "additional_params": {},
+                      "capture_frequency_hz": 10,
+                      "disabled": true,
+                      "method": "GetImages"
+                    }
+                  ]
+                },
+                "type": "data_manager"
+              }
+            ]
+          }
+        },
+        {
+          "$set": {
+            "components.gripper.service_configs": [
+              {
+                "attributes": {
+                  "capture_methods": [
+                    {
+                      "additional_params": {
+                        "docommand_input": {
+                          "get": true
+                        }
+                      },
+                      "capture_frequency_hz": 10,
+                      "disabled": true,
+                      "method": "DoCommand"
+                    }
+                  ]
+                },
+                "type": "data_manager"
+              }
+            ]
+          }
+        },
+        {
+          "$set": {
+            "components.arm.service_configs": [
+              {
+                "attributes": {
+                  "capture_methods": [
+                    {
+                      "additional_params": {},
+                      "capture_frequency_hz": 10,
+                      "method": "JointPositions"
+                    }
+                  ]
+                },
+                "type": "data_manager"
+              }
+            ],
+            "components.cam.service_configs": [
+              {
+                "attributes": {
+                  "capture_methods": [
+                    {
+                      "additional_params": {},
+                      "capture_frequency_hz": 10,
+                      "method": "GetImages"
+                    }
+                  ]
+                },
+                "type": "data_manager"
+              }
+            ],
+            "components.gripper.service_configs": [
+              {
+                "attributes": {
+                  "capture_methods": [
+                    {
+                      "additional_params": {
+                        "docommand_input": {
+                          "get": true
+                        }
+                      },
+                      "capture_frequency_hz": 10,
+                      "method": "DoCommand"
+                    }
+                  ]
+                },
+                "type": "data_manager"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "fragments": [
+    {
+      "id": "fd2be28c-71e5-4b8a-90a8-a514dbe75ca7",
+      "variables": {
+        "arm-ip-address": "192.168.1.204",
+        "arm-name": "arm",
+        "base-axis-rotation-degrees": 0,
+        "cam-serial-number": "151222075469",
+        "translation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    },
+    {
+      "id": "01ca42e4-78b9-425c-ae75-1101b9a7f3e8",
+      "variables": {
+        "ceiling-translation": {
+          "x": 0,
+          "y": 0,
+          "z": 1050
+        },
+        "front-wall-translation": {
+          "x": 740,
+          "y": 0,
+          "z": 300
+        },
+        "side-wall-translation": {
+          "x": 0,
+          "y": -500,
+          "z": 300
+        },
+        "table-translation": {
+          "x": 0,
+          "y": 0,
+          "z": -123
+        }
+      }
+    },
+    {
+      "id": "b511adfa-80ab-4a70-9bd5-fbb14696b17e"
+    }
+  ],
+  "modules": [
+    {
+      "module_id": "viam:find-webcams",
+      "name": "viam_find-webcams",
+      "type": "registry",
+      "version": "latest"
+    },
+    {
+      "module_id": "devrel:so101-arm",
+      "name": "devrel_so101-arm",
+      "type": "registry",
+      "version": "latest"
+    },
+    {
+      "module_id": "viam:teleop",
+      "name": "viam_teleop",
+      "type": "registry",
+      "version": "latest"
+    },
+    {
+      "module_id": "viam:capture-control",
+      "name": "viam_capture-control",
+      "type": "registry",
+      "version": "0.1.1"
+    },
+    {
+      "module_id": "viam-labs:capture-control-webapp",
+      "name": "viam-labs_capture-control-webapp",
+      "type": "registry",
+      "version": "0.2.0"
+    },
+    {
+      "module_id": "viam-labs:anomalib",
+      "name": "viam-labs_anomalib",
+      "type": "registry",
+      "version": "latest"
+    },
+    {
+      "module_id": "viam:viam-openvino",
+      "name": "viam_viam-openvino",
+      "type": "registry",
+      "version": "latest"
+    }
+  ],
+  "network": {
+    "traffic_tunnel_endpoints": [
+      {
+        "port": 8088
+      },
+      {
+        "port": 8888
+      }
+    ]
+  },
+  "packages": [
+    {
+      "name": "fastener-patchcore",
+      "package": "6d6c7293-bc67-43e4-9c8b-31c76aac27d3/fastener-patchcore",
+      "type": "ml_model",
+      "version": "latest"
+    }
+  ],
+  "services": [
+    {
+      "api": "rdk:service:discovery",
+      "attributes": {},
+      "model": "viam:find-webcams:webcam-discovery",
+      "name": "discovery-cam"
+    },
+    {
+      "api": "rdk:service:discovery",
+      "attributes": {},
+      "model": "devrel:so101:discovery",
+      "name": "discovery-arm"
+    },
+    {
+      "api": "rdk:service:generic",
+      "attributes": {
+        "align_on_start": true,
+        "capture_control_sensor": "capture-control",
+        "follower_gripper_command": {
+          "set": "$steps"
+        },
+        "follower_gripper_mode": "command",
+        "leader_gripper_commands": {
+          "on_start": [
+            {
+              "command": "set_torque",
+              "enable": false
+            }
+          ]
+        },
+        "leader_gripper_read_command": {
+          "command": "get_position"
+        },
+        "leader_gripper_read_key": "position_percentage",
+        "leader_hold": "manual",
+        "leader_tool_offset_mm": {
+          "x": 0,
+          "y": 0,
+          "z": 100
+        },
+        "origin_orientation": {
+          "type": "ov_degrees",
+          "value": {
+            "th": 0,
+            "x": 0,
+            "y": 0,
+            "z": 1
+          }
+        },
+        "pairs": [
+          {
+            "follower_component": "gripper",
+            "follower_gripper": "gripper",
+            "leader_arm": "leader-arm",
+            "leader_gripper": "leader-gripper",
+            "name": "main"
+          }
+        ],
+        "scale": 2.5,
+        "tool_orientation": {
+          "type": "ov_degrees",
+          "value": {
+            "th": -90,
+            "x": 0,
+            "y": 0,
+            "z": 1
+          }
+        }
+      },
+      "model": "viam:teleop:leader-follower",
+      "name": "teleop"
+    },
+    {
+      "api": "rdk:service:data_manager",
+      "attributes": {
+        "capture_control_sensor": {
+          "key": "overrides",
+          "name": "capture-control"
+        },
+        "capture_dir": "",
+        "capture_disabled": false,
+        "sync_disabled": false,
+        "sync_interval_mins": 0.1,
+        "tags": []
+      },
+      "depends_on": [
+        "capture-control"
+      ],
+      "model": "rdk:builtin:builtin",
+      "name": "data_manager"
+    },
+    {
+      "api": "rdk:service:generic",
+      "attributes": {
+        "port": 8888
+      },
+      "model": "viam-labs:capture-control:webapp",
+      "name": "capture-webapp"
+    },
+    {
+      "api": "rdk:service:vision",
+      "attributes": {
+        "camera_name": "overview-cam",
+        "mlmodel_name": "ov",
+        "threshold": 0.5
+      },
+      "model": "viam-labs:anomalib:vision",
+      "name": "vision-1",
+      "service_configs": [
+        {
+          "attributes": {
+            "capture_methods": []
+          },
+          "type": "data_manager"
+        }
+      ]
+    },
+    {
+      "api": "rdk:service:generic",
+      "attributes": {
+        "mlmodel_name": "ov"
+      },
+      "model": "viam:openvino:diagnostics",
+      "name": "ov-diag"
+    },
+    {
+      "api": "rdk:service:mlmodel",
+      "attributes": {
+        "device": "GPU",
+        "inference_precision": "f32",
+        "model_path": "${packages.ml_model.fastener-patchcore}/model.xml",
+        "package_reference": "6d6c7293-bc67-43e4-9c8b-31c76aac27d3/fastener-patchcore"
+      },
+      "model": "viam:openvino:mlmodel",
+      "name": "ov"
+    }
+  ]
+}

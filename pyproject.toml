@@ -1,0 +1,40 @@
+[project]
+name = "viamrobot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "wilmccann", email = "wilmccann@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "python-dotenv>=1.2.4",
+    "viam-sdk>=0.85.2",
+]
+
+[project.scripts]
+viamrobot = "viamrobot:main"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "pytest-cov>=7.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = [
+  "machine: talks to the real armfarm01 (needs VIAM_* env vars)",
+  "moves: physically moves the arm",
+]
+
+[tool.coverage.run]
+omit = ["tests/*"]

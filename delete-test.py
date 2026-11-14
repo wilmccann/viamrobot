@@ -1,0 +1,1 @@
+from viam.components.arm import Arm

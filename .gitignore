@@ -1,0 +1,24 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+docs/will-command-notes.txt
+docs/screenshots.md 
+
+# Virtual environments
+.venv
+
+# Secrets: SDK API key and viam-server part credentials
+.env
+viam-*.json
+
+# macOS
+.DS_Store
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/

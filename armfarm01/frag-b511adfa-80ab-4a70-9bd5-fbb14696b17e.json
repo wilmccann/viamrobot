@@ -1,0 +1,10 @@
+{
+  "services": [
+    {
+      "attributes": {},
+      "name": "ViamShellDanger",
+      "namespace": "rdk",
+      "type": "shell"
+    }
+  ]
+}

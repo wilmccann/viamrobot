@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "pytest: unit (no robot)",
+      "type": "shell",
+      "command": "uv run pytest -m \"not machine\"",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "pytest: machine (armfarm01, read-only)",
+      "type": "shell",
+      "command": "uv run pytest -m machine -s",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}
