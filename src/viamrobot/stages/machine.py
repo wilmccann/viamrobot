@@ -82,16 +82,18 @@ def boxes_from_detections(
 class MachineDetector:
     """Find the item: YOLO on the machine, through its vision service.
 
-    On armfarm01 that is `vision-6`, backed by `mlmodel-6` (yolov8n-part, one class
-    "part", on the NUC via OpenVINO). vision-2 can't do this: mlmodel-2 is a
-    two-class classifier with no box output. Sends the frame the pipeline captured
-    (frame.color must be a ViamImage), so the boxes line up with that frame.
+    On armfarm01 that is `vision-7`, backed by `mlmodel-7` (yolov8n-part-v2, one class
+    "part", on the NUC NPU via OpenVINO); it replaced vision-6 (yolov8n-part). It is
+    also the detector inside vision-9, which adds a normal/anomalous/hold verdict per
+    part and is what viamrobot.cell uses; vision-9's labels are verdicts, not "part", so
+    this class points at vision-7. Sends the frame the pipeline captured (frame.color
+    must be a ViamImage), so the boxes line up with that frame.
     """
 
     def __init__(
         self,
         vision: Vision,
-        service_name: str = "vision-6",
+        service_name: str = "vision-7",
         min_confidence: float = 0.5,
         labels: Sequence[str] | None = ("part",),
     ):
@@ -101,7 +103,7 @@ class MachineDetector:
         self.runs = f"YOLO on the machine, via vision service '{service_name}'"
 
     @classmethod
-    def from_robot(cls, robot: RobotClient, name: str = "vision-6", **kwargs) -> MachineDetector:
+    def from_robot(cls, robot: RobotClient, name: str = "vision-7", **kwargs) -> MachineDetector:
         return cls(VisionClient.from_robot(robot, name), name, **kwargs)
 
     async def find_items(self, frame: Frame) -> list[BoundingBox]:

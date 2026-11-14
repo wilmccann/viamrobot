@@ -1,7 +1,7 @@
 """Locate a detected part in 3D and plan a top-down grasp on it. Pure math, no machine calls.
 
 The wrist RealSense (`cam`) returns color and depth aligned to the same 640x480 grid, so a
-`vision-6` box in the color frame indexes straight into the depth frame. The camera frame is
+`vision-9` box in the color frame indexes straight into the depth frame. The camera frame is
 the usual pinhole one (+x right, +y down, +z out of the lens), in mm, which is the frame
 `robot.transform_pose(..., "world")` expects for `cam`.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
+import cv2
 import numpy as np
 
 from viamrobot.pipeline import BoundingBox
@@ -67,6 +68,89 @@ def deproject(u: float, v: float, depth_mm: float, k: Intrinsics) -> tuple[float
 
 def box_center(box: BoundingBox) -> tuple[float, float]:
     return (box.x_min + box.x_max) / 2, (box.y_min + box.y_max) / 2
+
+
+@dataclass(frozen=True)
+class PartAxis:
+    """A part's outline in the image, as a rotated rectangle."""
+
+    u: float  # centre, image px
+    v: float
+    angle_deg: float  # direction of the long side in the image, [0, 180): 0 = +u (right), 90 = +v (down)
+    length_px: float
+    width_px: float
+
+    @property
+    def elongation(self) -> float:
+        return self.length_px / max(self.width_px, 1e-6)
+
+    def ends(self) -> tuple[tuple[float, float], tuple[float, float]]:
+        """The two ends of the long axis, image px."""
+        a = np.radians(self.angle_deg)
+        du, dv = np.cos(a) * self.length_px / 2, np.sin(a) * self.length_px / 2
+        return (self.u - du, self.v - dv), (self.u + du, self.v + dv)
+
+
+def part_axis(bgr: np.ndarray, box: BoundingBox, pad: int = 6, min_contrast: float = 25.0) -> PartAxis | None:
+    """The long axis of the part in `box`, from the colour image (BGR, as cv2 decodes it).
+
+    The part is whatever differs most from the background, where the background is the
+    median colour of the border of the (padded) box: brown cardboard around a silver or
+    blue part. Otsu splits the colour distance into part and background, and the largest
+    blob gets a rotated rectangle (cv2.minAreaRect). Returns None when nothing in the box
+    stands out by at least `min_contrast`.
+    """
+    h, w = bgr.shape[:2]
+    x0, y0 = max(int(box.x_min) - pad, 0), max(int(box.y_min) - pad, 0)
+    x1, y1 = min(int(np.ceil(box.x_max)) + pad, w), min(int(np.ceil(box.y_max)) + pad, h)
+    crop = bgr[y0:y1, x0:x1].astype(np.float32)
+    if crop.shape[0] < 5 or crop.shape[1] < 5:
+        return None
+    border = np.concatenate([crop[:2].reshape(-1, 3), crop[-2:].reshape(-1, 3),
+                             crop[:, :2].reshape(-1, 3), crop[:, -2:].reshape(-1, 3)])
+    dist = np.linalg.norm(crop - np.median(border, axis=0), axis=2)
+    if dist.max() < min_contrast:
+        return None
+    dist8 = np.clip(dist * (255.0 / dist.max()), 0, 255).astype(np.uint8)
+    otsu, _ = cv2.threshold(dist8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    thresh = max(otsu, min_contrast * 255.0 / dist.max())
+    mask = (dist8 > thresh).astype(np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return None
+    blob = max(contours, key=cv2.contourArea)
+    if cv2.contourArea(blob) < 20:
+        return None
+    (cu, cv_), _, _ = rect = cv2.minAreaRect(blob)
+    p = cv2.boxPoints(rect)  # 4 corners in order
+    e1, e2 = p[1] - p[0], p[2] - p[1]
+    long_e, short_e = (e1, e2) if np.hypot(*e1) >= np.hypot(*e2) else (e2, e1)
+    angle = float(np.degrees(np.arctan2(long_e[1], long_e[0]))) % 180.0
+    return PartAxis(cu + x0, cv_ + y0, angle, float(np.hypot(*long_e)), float(np.hypot(*short_e)))
+
+
+def wrap_half_turn(deg: float) -> float:
+    """An angle in degrees, wrapped into [-90, 90): a direction that repeats every 180 degrees."""
+    return (deg + 90.0) % 180.0 - 90.0
+
+
+def jaw_turn_deg(part_yaw_deg: float, jaw_yaw_deg: float) -> float:
+    """How far to turn the jaws (world yaw, degrees, CCW from above) so they close across the
+    part: jaw direction = part's long axis + 90. Both directions repeat every 180 degrees
+    (the jaws are symmetric), so the answer is in [-90, 90): never more than a quarter turn.
+    """
+    return wrap_half_turn(part_yaw_deg + 90.0 - jaw_yaw_deg)
+
+
+def iou(a: BoundingBox, b: BoundingBox) -> float:
+    """Overlap of two boxes, 0 (apart) to 1 (identical)."""
+    w = max(0.0, min(a.x_max, b.x_max) - max(a.x_min, b.x_min))
+    h = max(0.0, min(a.y_max, b.y_max) - max(a.y_min, b.y_min))
+    inter = w * h
+    union = (a.x_max - a.x_min) * (a.y_max - a.y_min) + (b.x_max - b.x_min) * (b.y_max - b.y_min) - inter
+    return inter / union if union else 0.0
 
 
 def fingertip_reach_mm(geometries: Sequence, default: float = 50.0) -> float:

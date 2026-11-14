@@ -24,7 +24,7 @@ from viam.components.arm import Arm
 from viam.components.gripper import Gripper
 from viam.services.generic import Generic
 
-from test_pick_and_place import GRIPPER, SAFE_START_Z, go_to_saved_pose, in_world, wait_until_stopped
+from viamrobot.cell import Cell
 
 pytestmark = [pytest.mark.machine, pytest.mark.moves]
 
@@ -46,24 +46,16 @@ async def status_line(controller: Generic, arm: Arm, gripper: Gripper, t: float)
 
 
 async def test_vla_picks_up_a_part(robot):
-    arm = Arm.from_robot(robot, "arm")
-    gripper = Gripper.from_robot(robot, GRIPPER)
+    cell = Cell(robot)
+    arm, gripper = cell.arm, cell.gripper
     controller = Generic.from_robot(robot, CONTROLLER)
 
     state, _ = await status_line(controller, arm, gripper, 0.0)
     assert state in ("idle", "stopped"), f"{CONTROLLER} is already {state}; not starting another run"
 
-    # 0. Clear the table first if a previous run stopped down at a part.
-    start_z = (await in_world(robot, GRIPPER)).z
-    if start_z < SAFE_START_Z:
-        print(f"-> gripper starts low (z={start_z:.0f}); lifting straight up to z={SAFE_START_Z:.0f}")
-        flange = await arm.get_end_position()
-        flange.z += SAFE_START_Z - start_z
-        await arm.move_to_position(flange)
-        await wait_until_stopped(arm)
-
-    # 1. Start pose.
-    await go_to_saved_pose(robot, arm, START_POSE)
+    # 0-1. Clear the table first if a previous run stopped down at a part, then the start pose.
+    await cell.lift_clear()
+    await cell.go_to(START_POSE)
 
     # 2-3. Run the policy, always stopping it.
     print(f"-> {CONTROLLER} start")

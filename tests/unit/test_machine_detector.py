@@ -1,6 +1,6 @@
 """MachineDetector against a fake vision service: no machine needed.
 
-The fixture mirrors a vision-6 (yolov8n-part) result on a 640x480 `cam` frame with two
+The fixture mirrors a vision-6 (yolov8n-part, since replaced by vision-7) result on a 640x480 `cam` frame with two
 parts in view: a bolt at 0.56 and a blue part at 0.84, as seen in the CONTROL tab.
 """
 

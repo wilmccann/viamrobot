@@ -19,6 +19,7 @@ dependencies = [
 viamrobot = "viamrobot:main"
 viamrobot-sim = "viamrobot.sim:main"
 viamrobot-capture = "viamrobot.capture:main"
+viamrobot-demo = "viamrobot.demo:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
