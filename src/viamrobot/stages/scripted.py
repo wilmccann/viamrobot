@@ -101,20 +101,24 @@ class ScriptedAnomalyScorer:
 
 
 class ScriptedVlm:
-    """VLM second look. No model: returns the item's scripted verdict, or hangs if told to."""
+    """VLM second look. No model: returns the item's scripted verdict, or hangs if told to.
 
-    runs = "no model: returns the verdict typed into the scenario"
+    An item with no verdict (e.g. a replayed capture) fails at once, so the run shows
+    no made-up VLM time; the pipeline then sends the item to hold.
+    """
+
+    runs = "no model: returns the verdict typed into the scenario; fails at once if there is none"
 
     def __init__(self, scene: ScriptedScene):
         self.scene = scene
 
     async def second_look(self, frame: Frame, box: BoundingBox, anomaly_score: float) -> VlmVerdict:
         item = self.scene.current
+        if item.vlm is None:
+            raise RuntimeError(f"no scripted VLM verdict for {item.name}")
         if item.vlm == "timeout":
             await asyncio.sleep(3600)  # cancelled by the pipeline's timeout
         await self.scene.work("vlm")
-        if item.vlm is None:
-            raise RuntimeError(f"no scripted VLM verdict for {item.name}")
         return item.vlm
 
 

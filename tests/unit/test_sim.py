@@ -87,3 +87,16 @@ async def test_fixture_replay_uses_recorded_scores(tmp_path):
 async def test_local_scorer_needs_images():
     with pytest.raises(ValueError, match="--fixtures"):
         await simulate(scorer="local", speed=200, out=lambda _: None)
+
+
+async def test_missing_vlm_verdict_fails_at_once(tmp_path):
+    rows = "dir,label,name,anomaly_score,vision2_top,captured_at,errors\n"
+    rows += write_capture(tmp_path, "unlabeled/u_1", "unlabeled", 0.5)
+    (tmp_path / "index.csv").write_text(rows)
+
+    _, results = await simulate(load_fixtures(tmp_path), from_fixtures=True, out=lambda _: None)
+
+    record = results[0][1]
+    assert record.decided_by == "fallback"
+    assert "RuntimeError" in record.vlm_reason
+    assert record.timings_ms["vlm"] < 50  # no pretend 1.2 s VLM wait
