@@ -99,6 +99,9 @@ class Failure:
     box: BoundingBox  # where the part was, in the inspect-pose image
     count: int = 1
     item: int | None = None  # its judge-log number, if its decision was already logged
+    # What that line says, so a retry goes where the log says even if vision-9's verdict changes
+    destination: Destination | None = None
+    pose: str | None = None
 
 
 @dataclass
@@ -201,7 +204,8 @@ class Demo:
     robot: RobotClient | None = None
     cell: CellLike | None = None
     _current: BoundingBox | None = None
-    _current_item: int | None = None
+    _current_log: tuple[int, Destination, str] | None = None  # (item, destination, pose) of the part in hand
+    _last_look: list[BoundingBox] | None = None  # every part box in the previous inspect-pose look
     items_logged: int = 0  # judge-log numbers handed out so far
 
     # --- one part ----------------------------------------------------------------
@@ -215,47 +219,82 @@ class Demo:
         start = time.perf_counter()
         await cell.go_to(INSPECT_POSE)
         snap = await cell.look()
+        self._follow_moved_part(snap.parts)
+        self._last_look = [p.box for p in snap.parts]
         seen = choose_part(snap.parts, self.failures, self.max_attempts)
         if seen is None:
             return None
         box = self._current = seen.box
-        destination, pose, confidence = route(seen, self.hold_pose)
         # One judge-log line per physical part: a part being retried after a failure keeps
-        # the number (and line) it was given the first time.
-        item = next((f.item for f in self.failures if f.item is not None and iou(f.box, box) > SAME_PART_IOU), None)
-        retry = item is not None
-        if not retry:
+        # the number, line and destination it was given the first time, even if vision-9's
+        # verdict has changed since, so it ends up where the log says.
+        logged = next((f for f in self.failures if f.item is not None and iou(f.box, box) > SAME_PART_IOU), None)
+        if logged is None:
+            destination, pose, confidence = route(seen, self.hold_pose)
             self.items_logged += 1
             item = self.items_logged
             self._write_log(log_line(item, destination, confidence, datetime.now(timezone.utc)))
-        self._current_item = item
-        self.log(f"part {item}{' (retry)' if retry else ''}: {len(snap.parts)} in view; taking "
+        else:
+            item, destination, pose = logged.item, logged.destination, logged.pose
+        self._current_log = (item, destination, pose)
+        self.log(f"part {item}{' (retry)' if logged else ''}: {len(snap.parts)} in view; taking "
                  f"({box.x_min:.0f},{box.y_min:.0f})-({box.x_max:.0f},{box.y_max:.0f}) px: "
                  f"{seen.verdict} (score {seen.score:.3f}) -> {pose}")
 
         part = await cell.locate(snap, box)
         await cell.pick(part)
         await cell.place(pose)
-        await cell.go_to(INSPECT_POSE)
-
+        # Placed: it's done. Forget it before the move back, so a failure on the way back
+        # isn't recorded against this spot (a new part put there would inherit its line).
+        # It counts toward --max-parts now, too: a failure on the way back doesn't undo the drop.
         self.failures = [f for f in self.failures if iou(f.box, box) <= SAME_PART_IOU]
-        self._current, self._current_item = None, None
-        return Result(item, destination, seen.score, time.perf_counter() - start)
+        self._current, self._current_log = None, None
+        result = Result(item, destination, seen.score, time.perf_counter() - start)
+        self.results.append(result)
+        self.log(f"part {item}: done -> {destination.value} in {result.seconds:.1f} s")
+        await cell.go_to(INSPECT_POSE)
+        return result
+
+    def _follow_moved_part(self, parts: list[SeenPart]) -> None:
+        """Keep a moved part's judge-log line: a part that failed after it was logged and
+        has since moved (a judge moved it, or it fell from the gripper) is the same part.
+
+        It counts as that part only when it's unambiguous: exactly one logged part has gone
+        from where the previous look saw it, and exactly one part has appeared where the
+        previous look saw nothing. Anything else (two parts appeared, say) gets a new line.
+        """
+        if self._last_look is None:
+            return
+
+        def at(box: BoundingBox, boxes: list[BoundingBox]) -> bool:
+            return any(iou(box, b) > SAME_PART_IOU for b in boxes)
+
+        now = [p.box for p in parts]
+        gone = [f for f in self.failures
+                if f.item is not None and at(f.box, self._last_look) and not at(f.box, now)]
+        new = [b for b in now if not at(b, self._last_look) and not at(b, [f.box for f in self.failures])]
+        if len(gone) == 1 and len(new) == 1:
+            f, b = gone[0], new[0]
+            self.log(f"part {f.item} moved: ({f.box.x_min:.0f},{f.box.y_min:.0f}) -> ({b.x_min:.0f},{b.y_min:.0f}) px; "
+                     "keeping its log line")
+            f.box = b
 
     # --- failures ----------------------------------------------------------------
 
     def _note_failure(self) -> None:
         box, self._current = self._current, None
-        item, self._current_item = self._current_item, None
+        logged, self._current_log = self._current_log, None
         if box is None:
             return
+        item, destination, pose = logged or (None, None, None)
         for f in self.failures:
             if iou(f.box, box) > SAME_PART_IOU:
                 f.count += 1
                 f.box = box
-                f.item = f.item if f.item is not None else item
+                if f.item is None:
+                    f.item, f.destination, f.pose = item, destination, pose
                 return
-        self.failures.append(Failure(box, item=item))
+        self.failures.append(Failure(box, item=item, destination=destination, pose=pose))
 
     async def _connected(self) -> bool:
         try:
@@ -371,9 +410,6 @@ class Demo:
                 streak = 0
                 if result is None:
                     await asyncio.sleep(self.idle_poll_s)
-                    continue
-                self.results.append(result)
-                self.log(f"part {result.item}: done -> {result.destination.value} in {result.seconds:.1f} s")
         finally:
             if self.cell is not None:
                 await self.cell.stop()

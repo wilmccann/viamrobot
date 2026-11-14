@@ -25,7 +25,8 @@ One 5-minute run with 6 judge items (good, defective, and at least one defect ty
 uv run viamrobot-demo --max-parts 6 --log runs/judge-$(date +%H%M%S).csv
 ```
 
-- Parts vision-9 is unsure about are treated as anomalous: reject bin, logged `reject`.
+- Parts vision-9 is unsure about go to the hold area (`unsure-pose`), logged `hold`. To send them to the reject bin
+  instead (logged `reject`), add `--hold-pose bad-pose`. Decide before the run and tell the judges which.
 - A fresh `--log` file per run: the log is opened in append mode.
 - Ctrl-C stops the loop; recovery (stop, open gripper, lift, inspect pose) runs on any failure.
 
@@ -39,13 +40,14 @@ Written by `Demo._write_log` (`src/viamrobot/demo.py`) **before the arm moves**,
 
 | Column | Meaning |
 |-|-|
-| `item` | 1, 2, 3 … in decision order |
-| `decision` | `box` (good) or `reject` (anomalous, or unsure) |
+| `item` | 1, 2, 3 … in decision order; one per physical part (a retry, or a part a judge moved, keeps its number) |
+| `decision` | `box` (good), `reject` (anomalous) or `hold` (unsure; `reject` with `--hold-pose bad-pose`) |
 | `confidence` | How far vision-9's score sits toward its decision (1.0 = certain) |
 | `timestamp` | UTC ISO-8601, taken just before the arm starts its response |
 
 Scoring from the log: match each line to the judge's truth for that item, then
 precision = correct `reject` / all `reject`, recall = correct `reject` / all truly defective items.
+A `hold` line is neither a `box` nor a `reject` call: a defective part sent to hold counts against recall.
 Latency = log `timestamp` minus the moment the item entered view (the judge's clock).
 
 Hand in the run's file (`runs/judge-<time>.csv`). If the run restarts, start a new file and say which one counts.
@@ -68,4 +70,4 @@ Hand in the run's file (`runs/judge-<time>.csv`). If the run restarts, start a n
 | `mlmodel-8` / `vision-8` | `/root/yolov8n-anomaly-v2/yolov8n-anomaly.onnx` (3 classes), NPU |
 | `mlmodel-9` | `/root/sortit-patchcore-crops-v2/model.xml`, GPU f32 |
 | `ov` / `vision-1` | `sortit-patchcore` v1 package, GPU f32 |
-| Poses | `inspect-pose`, `good-pose`, `bad-pose`, `home-pose` (switch components) |
+| Poses | `inspect-pose`, `good-pose`, `bad-pose`, `unsure-pose`, `home-pose` (switch components) |
