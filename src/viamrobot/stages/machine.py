@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Sequence
 
 from viam.media.video import ViamImage
-from viam.proto.service.vision import Classification
+from viam.proto.service.vision import Classification, Detection
 from viam.robot.client import RobotClient
 from viam.services.vision import Vision, VisionClient
 
@@ -52,3 +52,66 @@ class MachinePatchCoreScorer:
         if not isinstance(frame.color, ViamImage):
             raise TypeError(f"MachinePatchCoreScorer needs a ViamImage frame, got {type(frame.color).__name__}")
         return anomaly_score(await self.vision.get_classifications(frame.color, count=1))
+
+
+_PIXEL_FIELDS = ("x_min", "y_min", "x_max", "y_max")
+
+
+def boxes_from_detections(
+    detections: Sequence[Detection],
+    min_confidence: float = 0.0,
+    labels: Sequence[str] | None = None,
+) -> list[BoundingBox]:
+    """Every detection as a BoundingBox in pixel coordinates, highest confidence first.
+
+    Drops detections below `min_confidence` and, when `labels` is given, any whose
+    class_name is not in it. The pixel fields are optional in the proto; a detection
+    without them raises rather than silently becoming a box at (0, 0).
+    """
+    boxes = []
+    for d in detections:
+        if d.confidence < min_confidence or (labels is not None and d.class_name not in labels):
+            continue
+        missing = [f for f in _PIXEL_FIELDS if not d.HasField(f)]
+        if missing:
+            raise ValueError(f"detection {d.class_name!r} has no pixel coordinates ({', '.join(missing)})")
+        boxes.append(BoundingBox(d.x_min, d.y_min, d.x_max, d.y_max, confidence=d.confidence, label=d.class_name))
+    return sorted(boxes, key=lambda b: b.confidence, reverse=True)
+
+
+class MachineDetector:
+    """Find the item: YOLO on the machine, through its vision service.
+
+    On armfarm01 that is `vision-6`, backed by `mlmodel-6` (yolov8n-part, one class
+    "part", on the NUC via OpenVINO). vision-2 can't do this: mlmodel-2 is a
+    two-class classifier with no box output. Sends the frame the pipeline captured
+    (frame.color must be a ViamImage), so the boxes line up with that frame.
+    """
+
+    def __init__(
+        self,
+        vision: Vision,
+        service_name: str = "vision-6",
+        min_confidence: float = 0.5,
+        labels: Sequence[str] | None = ("part",),
+    ):
+        self.vision = vision
+        self.min_confidence = min_confidence
+        self.labels = labels
+        self.runs = f"YOLO on the machine, via vision service '{service_name}'"
+
+    @classmethod
+    def from_robot(cls, robot: RobotClient, name: str = "vision-6", **kwargs) -> MachineDetector:
+        return cls(VisionClient.from_robot(robot, name), name, **kwargs)
+
+    async def find_items(self, frame: Frame) -> list[BoundingBox]:
+        """Every item in view, highest confidence first."""
+        if not isinstance(frame.color, ViamImage):
+            raise TypeError(f"MachineDetector needs a ViamImage frame, got {type(frame.color).__name__}")
+        detections = await self.vision.get_detections(frame.color)
+        return boxes_from_detections(detections, self.min_confidence, self.labels)
+
+    async def find_item(self, frame: Frame) -> BoundingBox | None:
+        """The pipeline's Detector stage: the most confident item, or None if nothing is in view."""
+        boxes = await self.find_items(frame)
+        return boxes[0] if boxes else None

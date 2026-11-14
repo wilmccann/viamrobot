@@ -68,9 +68,48 @@ class Detector(Protocol):
 
 
 class AnomalyScorer(Protocol):
-    """Anomaly score in [0, 1]: PatchCore on the GPU, f32."""
+    """Anomaly score in [0, 1], using normalized image variation as a baseline."""
 
-    async def score(self, frame: Frame, box: BoundingBox) -> float: ...
+    async def score(self, frame: Frame, box: BoundingBox) -> float:
+        """Estimate anomaly from grayscale intensity variation in the item crop.
+
+        This lightweight baseline works with nested pixel sequences and array-like
+        images exposing ``tolist``; production deployments can provide PatchCore.
+        """
+        image = frame.color
+        tolist = getattr(image, "tolist", None)
+        if callable(tolist):
+            image = tolist()
+
+        try:
+            height = len(image)
+            width = len(image[0]) if height else 0
+        except (TypeError, IndexError, KeyError) as exc:
+            raise ValueError("frame.color must be a non-empty height-by-width image") from exc
+        if height == 0 or width == 0:
+            raise ValueError("frame.color must be a non-empty height-by-width image")
+
+        x0 = max(0, min(width, box.x_min))
+        y0 = max(0, min(height, box.y_min))
+        x1 = max(x0, min(width, box.x_max + 1))
+        y1 = max(y0, min(height, box.y_max + 1))
+        intensities: list[float] = []
+        for row in image[y0:y1]:
+            for pixel in row[x0:x1]:
+                if isinstance(pixel, (list, tuple)):
+                    channels = [float(channel) for channel in pixel[:3]]
+                    if not channels:
+                        continue
+                    intensities.append(sum(channels) / len(channels))
+                else:
+                    intensities.append(float(pixel))
+        if not intensities:
+            raise ValueError("bounding box does not overlap frame.color")
+
+        mean = sum(intensities) / len(intensities)
+        variance = sum((value - mean) ** 2 for value in intensities) / len(intensities)
+        intensity_scale = 1.0 if max(intensities) <= 1.0 else 255.0
+        return min(1.0, (variance**0.5) / (intensity_scale / 2.0))
 
 
 class Vlm(Protocol):
