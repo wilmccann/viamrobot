@@ -255,6 +255,24 @@ async def test_a_moved_part_gets_a_new_line_when_its_ambiguous(tmp_path):
     assert [row[0] for row in log_rows(tmp_path)] == ["1", "2", "3", "4"]
 
 
+async def test_the_log_folder_is_made_before_the_arm_moves(tmp_path):
+    world = World([seen(A)])
+    demo = make_demo(world, tmp_path, max_parts=1)
+    demo.log_path = tmp_path / "runs" / "rehearsal.csv"
+    await demo.run()
+    assert demo.log_path.read_text().startswith("1,box,")
+
+
+async def test_an_unwritable_log_stops_the_demo_before_the_arm_moves(tmp_path):
+    (tmp_path / "runs").write_text("a file, not a folder")
+    world = World([seen(A)])
+    demo = make_demo(world, tmp_path, max_parts=1)
+    demo.log_path = tmp_path / "runs" / "rehearsal.csv"
+    with pytest.raises(DemoStopped, match="judge log"):
+        await demo.run()
+    assert world.calls == [] and world.cells == 0  # never connected, never moved
+
+
 async def test_numbers_never_repeat_after_a_timeout(tmp_path):
     world = World([seen(A), seen(B)], picks=["hang", "ok"])
     await make_demo(world, tmp_path, max_parts=1, part_timeout_s=0.2).run()

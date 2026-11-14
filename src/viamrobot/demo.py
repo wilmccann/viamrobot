@@ -380,6 +380,13 @@ class Demo:
     # --- the loop ------------------------------------------------------------------
 
     async def run(self) -> list[Result]:
+        # No log, no Decision or Latency points: make sure it can be written before the
+        # arm moves, rather than finding out at the first part (and recovering forever).
+        try:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            self.log_path.open("a").close()
+        except OSError as exc:
+            raise DemoStopped(f"can't write the judge log {self.log_path}: {exc}") from exc
         await self.start()
         self.log(f"demo running: part timeout {self.part_timeout_s:.0f} s, verdicts from vision-9, "
                  f"hold -> {self.hold_pose}; judge log {self.log_path}")

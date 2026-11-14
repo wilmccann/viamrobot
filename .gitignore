@@ -28,3 +28,5 @@ models/*/
 
 # Judge logs written by viamrobot-sim --log (simulated runs)
 judge*.csv
+# Judge and rehearsal logs from viamrobot-demo --log runs/...
+runs/
