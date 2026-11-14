@@ -114,14 +114,17 @@ async def test_normal_goes_to_good_pose_and_anomalous_to_bad_pose(tmp_path):
     assert [l.split(",")[:3] for l in lines] == [["1", "box", "0.800"], ["2", "reject", "0.900"]]
 
 
-async def test_hold_goes_to_bad_pose_or_unsure_pose(tmp_path):
+async def test_hold_goes_to_unsure_pose_by_default(tmp_path):
     world = World([seen(A, "hold", 0.5)])
-    await make_demo(world, tmp_path, max_parts=1).run()
-    assert f"place {BAD_POSE}" in world.calls
-
-    world = World([seen(A, "hold", 0.5)])
-    results = await make_demo(world, tmp_path, max_parts=1, hold_pose=UNSURE_POSE).run()
+    results = await make_demo(world, tmp_path, max_parts=1).run()
     assert f"place {UNSURE_POSE}" in world.calls and results[0].destination is Destination.HOLD
+    assert (tmp_path / "judge.csv").read_text().split(",")[1] == "hold"
+
+
+async def test_hold_can_be_sent_to_bad_pose(tmp_path):
+    world = World([seen(A, "hold", 0.5)])
+    results = await make_demo(world, tmp_path, max_parts=1, hold_pose=BAD_POSE).run()
+    assert f"place {BAD_POSE}" in world.calls and results[0].destination is Destination.REJECT
 
 
 async def test_each_part_starts_and_ends_at_inspect(tmp_path):
