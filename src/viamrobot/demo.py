@@ -6,7 +6,8 @@
       take one part   (nearest the image centre; long parts get the jaws turned across them)
         normal        -> log, pick it up, drop it at good-pose
         anomalous     -> log, pick it up, drop it at bad-pose
-        hold          -> treated as anomalous (bad-pose), or --hold-pose unsure-pose
+        hold          -> log, pick it up, drop it at unsure-pose (the hold area);
+                         --hold-pose bad-pose treats it as anomalous instead
       back to the inspect pose, next part
 
 Failures never stop the loop:
@@ -121,11 +122,11 @@ def choose_part(parts: list[SeenPart], failures: list[Failure], max_attempts: in
     return parts[min(tries)[1]] if tries else None
 
 
-def route(seen: SeenPart, hold_pose: HoldPose = BAD_POSE) -> tuple[Destination, str, float]:
+def route(seen: SeenPart, hold_pose: HoldPose = UNSURE_POSE) -> tuple[Destination, str, float]:
     """Where a part goes, from vision-9's verdict: (judge-log decision, saved pose, confidence).
 
-    normal -> good-pose; anomalous -> bad-pose; hold -> `hold_pose` (bad-pose: treated as
-    anomalous; unsure-pose: logged as hold). Confidence is how far the score sits toward
+    normal -> good-pose; anomalous -> bad-pose; hold -> `hold_pose` (unsure-pose, the
+    hold area: logged as hold; bad-pose: treated as anomalous). Confidence is how far the score sits toward
     the decision when the score is a probability (decider "vision8"); 1.0 otherwise.
     """
     if seen.verdict == NORMAL:
@@ -181,7 +182,7 @@ class Demo:
     make_cell: Callable[[RobotClient], CellLike]
     log_path: Path
     part_timeout_s: float = PART_TIMEOUT_S
-    hold_pose: HoldPose = BAD_POSE
+    hold_pose: HoldPose = UNSURE_POSE
     max_parts: int | None = None
     max_attempts: int = MAX_ATTEMPTS_PER_PART
     reconnect_attempts: int = RECONNECT_ATTEMPTS
@@ -374,8 +375,9 @@ class Demo:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--part-timeout", type=float, default=PART_TIMEOUT_S, help="seconds allowed per part (default 20)")
-    p.add_argument("--hold-pose", choices=(BAD_POSE, UNSURE_POSE), default=BAD_POSE,
-                   help="where vision-9's 'hold' (unsure) parts go (default bad-pose: treated as anomalous)")
+    p.add_argument("--hold-pose", choices=(UNSURE_POSE, BAD_POSE), default=UNSURE_POSE,
+                   help="where vision-9's 'hold' (unsure) parts go (default unsure-pose, the hold area; "
+                        "bad-pose treats them as anomalous)")
     p.add_argument("--max-parts", type=int, default=None, help="stop after this many parts (default: run until Ctrl-C)")
     p.add_argument("--max-attempts", type=int, default=MAX_ATTEMPTS_PER_PART, help="failures before a part is ignored")
     p.add_argument("--log", type=Path, default=Path("judge.csv"), help="judge log, one line per part (default judge.csv)")
