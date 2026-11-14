@@ -20,12 +20,13 @@ other part, and dropped after --max-attempts failures. If recovery itself fails 
 in a row, the demo stops: the arm needs a person.
 
 One judge-log line per decided part (number, decision, confidence, timestamp) is
-appended to --log before the arm moves.
+written before the arm moves. Every run gets its own file, runs/judge-<UTC time>.csv,
+unless --log names one.
 
 Stand at the E-stop (red button on the xArm controller), then:
 
     uv run viamrobot-demo                      # until Ctrl-C
-    uv run viamrobot-demo --max-parts 6 --log judge.csv
+    uv run viamrobot-demo --max-parts 6               # log: runs/judge-<UTC time>.csv
 """
 
 from __future__ import annotations
@@ -367,8 +368,14 @@ class Demo:
         return self.results
 
     def _write_log(self, line: str) -> None:
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.log_path.open("a") as f:
             f.write(line + "\n")
+
+
+def default_log_path(now: datetime | None = None) -> Path:
+    """A fresh judge log per run, so one run's lines never mix with another's."""
+    return Path("runs") / f"judge-{(now or datetime.now(timezone.utc)).strftime('%Y%m%d-%H%M%S')}.csv"
 
 
 def main() -> None:
@@ -378,7 +385,8 @@ def main() -> None:
                    help="where vision-9's 'hold' (unsure) parts go (default bad-pose: treated as anomalous)")
     p.add_argument("--max-parts", type=int, default=None, help="stop after this many parts (default: run until Ctrl-C)")
     p.add_argument("--max-attempts", type=int, default=MAX_ATTEMPTS_PER_PART, help="failures before a part is ignored")
-    p.add_argument("--log", type=Path, default=Path("judge.csv"), help="judge log, one line per part (default judge.csv)")
+    p.add_argument("--log", type=Path, default=None,
+                   help="judge log, one line per part (default: a new runs/judge-<UTC time>.csv for every run)")
     args = p.parse_args()
 
     from viamrobot.cell import Cell
@@ -386,7 +394,7 @@ def main() -> None:
     demo = Demo(
         connect=connect_to_machine,
         make_cell=lambda robot: Cell(robot, log=say),
-        log_path=args.log,
+        log_path=args.log or default_log_path(),
         part_timeout_s=args.part_timeout,
         hold_pose=args.hold_pose,
         max_parts=args.max_parts,

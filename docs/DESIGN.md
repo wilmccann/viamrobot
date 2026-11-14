@@ -88,8 +88,21 @@ the fix for unseen defects; see [STORYLINE.md](STORYLINE.md) for how we got here
 - The crop model's boolean outputs (`pred_label`, `pred_mask`) broke the Viam SDK; re-exported with numeric outputs only.
 - Our first validation scored 100%, because the frames leaked; the honest number came from holding out whole scenes.
 
+## The grasp: scripted pick, and the VLA track
+
+The demo's pick is planned: depth at the box centre → a 3D point → the motion service, with the jaws turned across
+long parts (`cell.py`). In parallel a teammate ran a **virtual-leader SmolVLA** track: invert the teleop mapping so
+every xArm recording becomes SO-101 leader motion, fine-tune SmolVLA on it, and let the VLA grasp through Viam's
+teleop while vision and the planner aim (details in [VLA-EXPERIMENTS.md](VLA-EXPERIMENTS.md)).
+
+| What | Result |
+|-|-|
+| Mapping accuracy | Leader IK 0.15 mm / 0.6°; rebuilt poses match teleop logs to 3.5 mm |
+| Models | 3 SmolVLA fine-tunes; `armfarm01-smolvla-vleader-gl` (grasp/lift prompts) is loaded by `policy` |
+| Robot trials (2026-11-14) | Chain ran cleanly every time (~10 fps); vision + planning reached the part every time; the VLA grasped in 2 of 4 vision-guided runs and drifts ~80 mm off the part |
+| Lesson | 30 demos over 19 grasp spots taught the average pick motion, not where the bolt is: the bottleneck is data |
+
 ## Known limits
 
-- The judge log is appended to: give each run its own `--log` file.
 - The log has no separate entered-view / arm-start timestamps; its timestamp is taken just before the arm moves.
 - `place()` opens the gripper without re-checking it still holds the part.

@@ -277,3 +277,15 @@ def test_is_connection_error():
     assert not is_connection_error(TimeoutError())
     assert not is_connection_error(GRPCError(Status.CANCELLED, "context canceled"))
     assert not is_connection_error(PickMissed("x"))
+
+
+def test_default_log_path_is_a_new_file_per_run(tmp_path):
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from viamrobot.demo import default_log_path
+
+    a = default_log_path(datetime(2026, 11, 14, 20, 30, 1, tzinfo=timezone.utc))
+    b = default_log_path(datetime(2026, 11, 14, 20, 41, 9, tzinfo=timezone.utc))
+    assert a == Path("runs") / "judge-20261114-203001.csv"
+    assert a != b
