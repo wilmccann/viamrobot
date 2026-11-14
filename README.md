@@ -1,14 +1,14 @@
 # viamrobot — Track 3 "Spot it, sort it" on armfarm01
 
 A wrist camera looks at parts on the table. Each part gets a verdict, which is written to a judge log **before** the
-arm moves, and then the arm drops the part in the **good** bin or the **reject** bin.
+arm moves, and then the arm drops the part in the **good** bin, the **reject** bin or the **hold** area.
 
 ```
 cam ─▶ vision-9 (sortit:vision:parts9)
          ├─ vision-7  YOLOv8n "part" detector          NPU  ── is it a part?    (no → leave it)
          ├─ vision-8  YOLOv8n normal/anomaly/other     NPU  ── is it defective? ("other" → leave it)
          └─ mlmodel-9 crop-PatchCore                   GPU  ── loaded; decider switch for unseen defects
-      ─▶ viamrobot-demo: log line → pick with depth + motion service → good-pose (normal) / bad-pose (anomalous)
+      ─▶ viamrobot-demo: log line → pick with depth + motion service → good-pose (normal) / bad-pose (anomalous) / unsure-pose (hold)
 ```
 
 | Doc | What |
@@ -27,13 +27,14 @@ companion repo **[namitkapoor/spot-it-sort-it](https://github.com/namitkapoor/sp
 
 ```bash
 uv sync
-uv run pytest tests/unit -q                  # offline, no robot (158 pass, 4 skipped on 2026-11-14)
+uv run pytest tests/unit -q                  # offline, no robot (178 pass on 2026-11-14)
 
 # The judged run. MOVES THE ARM: stand at the E-stop.
 uv run viamrobot-demo --max-parts 6 --log runs/judge-$(date +%H%M%S).csv
 ```
 
-A part vision-9 is unsure about is treated as anomalous: it goes to the reject bin and is logged `reject`. A new
+A part vision-9 is unsure about goes to the hold area (`unsure-pose`) and is logged `hold`; add
+`--hold-pose bad-pose` to treat it as anomalous instead (reject bin, logged `reject`). A new
 `--log` file name per run keeps earlier runs out of the judged log, because the log is appended to.
 
 Connection settings come from `.env` (gitignored); see [docs/python project setup.md](docs/python%20project%20setup.md).
@@ -48,5 +49,7 @@ No header row; the columns are `item,decision,confidence,timestamp` (UTC). Illus
 2,box,0.949,2026-11-14T19:31:21.870113+00:00
 ```
 
-`decision` is `box` (good) or `reject` (anomalous or unsure). Details and how to score it are in
+`decision` is `box` (good), `reject` (anomalous) or `hold` (unsure; `reject` with `--hold-pose bad-pose`).
+Each physical part gets one line: a retry after a failed pick, or a part a judge moved, keeps its first line and goes
+where that line says. Details and how to score it are in
 [docs/JUDGING.md](docs/JUDGING.md#the-judge-log).

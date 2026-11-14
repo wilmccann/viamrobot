@@ -34,6 +34,12 @@ class World:
         self.link_up = True
         self.calls: list[str] = []
         self.cells = 0
+        self.on: dict = {}  # "miss" / "place": called once, the first time that happens
+        self.fail_inspect = 0  # this many moves to the inspect pose fail
+
+    def fire(self, event):
+        if event in self.on:
+            self.on.pop(event)()
 
 
 class FakeCell:
@@ -50,6 +56,9 @@ class FakeCell:
 
     async def go_to(self, name):
         self._check()
+        if name == INSPECT_POSE and self.w.fail_inspect:
+            self.w.fail_inspect -= 1
+            raise RuntimeError("motion failed")
         self.w.calls.append(f"go_to {name}")
 
     async def look(self):
@@ -67,6 +76,7 @@ class FakeCell:
         if how == "hang":
             await asyncio.sleep(10)
         if how == "miss":
+            self.w.fire("miss")
             raise PickMissed("fingers stopped at 0")
         if how == "drop":
             self.w.link_up = False
@@ -76,6 +86,7 @@ class FakeCell:
 
     async def place(self, pose_name):
         self.w.calls.append(f"place {pose_name}")
+        self.w.fire("place")
 
     async def recover(self):
         self._check()
@@ -173,6 +184,82 @@ async def test_any_other_failure_recovers_and_moves_on(tmp_path):
     results = await make_demo(world, tmp_path, max_parts=1).run()
     assert world.calls.count("recover") == 2
     assert remaining(world) == [A] and len(results) == 1
+
+
+async def test_a_retried_part_keeps_its_number_and_is_logged_once(tmp_path):
+    # A misses, B is done, then A is retried and done: lines 1 (A) and 2 (B), nothing else.
+    world = World([seen(A, "normal", 0.1), seen(B, "anomalous", 0.9)], picks=["miss", "ok", "ok"])
+    results = await make_demo(world, tmp_path, max_parts=2).run()
+
+    lines = (tmp_path / "judge.csv").read_text().splitlines()
+    assert [l.split(",")[:2] for l in lines] == [["1", "box"], ["2", "reject"]]
+    assert sorted(r.item for r in results) == [1, 2]
+    assert {r.item: r.destination for r in results} == {1: Destination.BOX, 2: Destination.REJECT}
+
+
+C = BoundingBox(500, 100, 550, 150, confidence=0.9, label="anomalous")
+D = BoundingBox(500, 300, 550, 350, confidence=0.1, label="normal")
+
+
+def log_rows(tmp_path):
+    return [l.split(",")[:2] for l in (tmp_path / "judge.csv").read_text().splitlines()]
+
+
+def places(world):
+    return [c.split()[1] for c in world.calls if c.startswith("place")]
+
+
+async def test_a_retry_goes_where_the_log_says_even_if_the_verdict_changes(tmp_path):
+    world = World([seen(A, "normal", 0.1)], picks=["miss", "ok"])
+    world.on["miss"] = lambda: setattr(world, "parts", [seen(A, "anomalous", 0.9)])
+    results = await make_demo(world, tmp_path, max_parts=1).run()
+
+    assert log_rows(tmp_path) == [["1", "box"]]
+    assert places(world) == [GOOD_POSE]
+    assert results[0].destination is Destination.BOX
+
+
+async def test_a_failure_after_placing_doesnt_take_the_next_parts_log_line(tmp_path):
+    # Part 1 is placed, the move back to inspect fails, and a new part sits where part 1 was.
+    world = World([seen(A, "normal", 0.1)])
+
+    def new_part_in_the_same_spot():
+        world.parts = [seen(A, "anomalous", 0.9)]
+        world.fail_inspect = 1
+
+    world.on["place"] = new_part_in_the_same_spot
+    results = await make_demo(world, tmp_path, max_parts=2).run()
+
+    assert log_rows(tmp_path) == [["1", "box"], ["2", "reject"]]
+    assert places(world) == [GOOD_POSE, BAD_POSE]
+    assert [r.item for r in results] == [1, 2]
+
+
+async def test_a_moved_part_keeps_its_number_and_destination(tmp_path):
+    # Part 1 (A) misses and a judge moves it to C; B is done next, then the part at C as part 1.
+    world = World([seen(A, "anomalous", 0.9), seen(B, "normal", 0.1)], picks=["miss", "ok", "ok"])
+    world.on["miss"] = lambda: setattr(world, "parts", [seen(C, "normal", 0.2), seen(B, "normal", 0.1)])
+    results = await make_demo(world, tmp_path, max_parts=2).run()
+
+    assert log_rows(tmp_path) == [["1", "reject"], ["2", "box"]]
+    assert {r.item: r.destination for r in results} == {1: Destination.REJECT, 2: Destination.BOX}
+    assert places(world) == [GOOD_POSE, BAD_POSE]
+
+
+async def test_a_moved_part_gets_a_new_line_when_its_ambiguous(tmp_path):
+    # A moves to C and a new part D appears at the same time: either could be A, so both are new.
+    world = World([seen(A, "anomalous", 0.9), seen(B, "normal", 0.1)], picks=["miss", "ok", "ok", "ok"])
+    world.on["miss"] = lambda: setattr(world, "parts", [seen(B), seen(C, "anomalous", 0.9), seen(D)])
+    await make_demo(world, tmp_path, max_parts=3).run()
+
+    assert [row[0] for row in log_rows(tmp_path)] == ["1", "2", "3", "4"]
+
+
+async def test_numbers_never_repeat_after_a_timeout(tmp_path):
+    world = World([seen(A), seen(B)], picks=["hang", "ok"])
+    await make_demo(world, tmp_path, max_parts=1, part_timeout_s=0.2).run()
+    numbers = [l.split(",")[0] for l in (tmp_path / "judge.csv").read_text().splitlines()]
+    assert numbers == ["1", "2"]
 
 
 async def test_a_part_that_keeps_failing_is_dropped_after_max_attempts(tmp_path):

@@ -23,7 +23,7 @@ inspect pose ─▶ wrist cam frame (RealSense, colour + depth)
    ▼  viamrobot-demo
    log line (item, decision, confidence, timestamp)  ── written BEFORE the arm moves
    pick: depth at the box centre → 3D point → motion service, jaws turned across long parts
-   drop: normal → good-pose · anomalous or unsure → bad-pose
+   drop: normal → good-pose · anomalous → bad-pose · unsure → unsure-pose (the hold area)
    back to inspect pose, next part
 ```
 
@@ -64,7 +64,8 @@ Reproduce on the `ov-diag` test card: `{"command": "benchmark", "mlmodel_name": 
 |-|-|-|
 | Separate "is it a part" from "is it defective" | A detector that also judges defects ties two errors together; splitting them lets the best part finder (`vision-7`) and the best defect judge (`vision-8`) each do one job | `vision-7` beat `vision-6` on confidence; `vision-8` matched `vision-6` on finding parts while also classifying |
 | A third class, "other" | Non-parts (blocks) should not be sorted at all; labelling them "normal" taught the model blocks are good parts | Blocks now come out `other` at 0.95 |
-| Unsure means reject | A part we can't vouch for never goes in the good box | A part with no `vision-8` match is rejected, never boxed |
+| Unsure goes to hold | A part we can't vouch for never goes in the good box, and the hold area is one of the three destinations the track names | A part with no `vision-8` match is held, never boxed; `--hold-pose bad-pose` rejects it instead |
+| One log line per physical part | The log is scored per item; a second line for the same part would count as a second decision | A retry, or a part a judge moved (one part gone, one appeared), keeps its first line and goes where that line says |
 | Log before motion | No log, no decision or latency points; writing first means a failed pick still has its decision recorded | `demo.py`: `_write_log` runs before the pick |
 | Ignore the bottom band | The black rig fixture sits in every frame and drew false boxes | All 5 held-out false positives were on the fixture, at 0.29–0.39 |
 | Burst-aware evaluation | Frames came in bursts of the same scene, so random splits leaked | Half the original val set had a twin in train; we re-split by scene for honest numbers |
@@ -93,3 +94,4 @@ the fix for unseen defects; see [STORYLINE.md](STORYLINE.md) for how we got here
 - The judge log is appended to: give each run its own `--log` file.
 - The log has no separate entered-view / arm-start timestamps; its timestamp is taken just before the arm moves.
 - `place()` opens the gripper without re-checking it still holds the part.
+- A moved part keeps its line only when it's unambiguous: if a new part appears at the same moment, both get new lines.
